@@ -4,15 +4,32 @@
 
 NeneEngine::NeneEngine() : m_running(false), m_deltaTime(0.0f) {
     m_window = std::make_shared<Window>();
-    m_inputDevice = std::make_unique<InputDevice>();
 }
+
+NeneEngine::~NeneEngine()
+{
+}
+
+void NeneEngine::OnWindowResized(int width, int height) {
+
+}
+
+void NeneEngine::OnKeyPressed(int key)
+{
+}
+
+void NeneEngine::OnMouseMoved(int x, int y) {
+
+}
+
 
 void NeneEngine::Initialize() {
     if (!m_window->Create("Nene Engine", 1920, 1080)) {
         throw std::runtime_error("Failed to create window");
     }
 
-    // Подписываемся на события через делегаты
+    m_inputDevice = std::make_unique<InputDevice>(m_window->GetHandle());
+    
     m_window->OnResize.AddLambda([this](int w, int h) { OnWindowResized(w, h); });
     m_window->OnKey.AddLambda([this](int key, bool pressed) { if (pressed) OnKeyPressed(key); });
     m_window->OnMouseMove.AddLambda([this](int x, int y) { OnMouseMoved(x, y); });
@@ -20,6 +37,18 @@ void NeneEngine::Initialize() {
 
     m_window->Show();
     m_running = true;
+}
+
+void NeneEngine::Update(float deltaTime)
+{
+}
+
+void NeneEngine::Render()
+{
+}
+
+void NeneEngine::Shutdown()
+{
 }
 
 void NeneEngine::Run() {

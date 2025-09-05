@@ -21,11 +21,10 @@ public:
     int GetWidth() const { return m_width; }
     int GetHeight() const { return m_height; }
 
-    // Используем MulticastDelegate вместо std::function
     MulticastDelegate<int, int> OnResize;
     MulticastDelegate<int, bool> OnKey;
     MulticastDelegate<int, int> OnMouseMove;
-    MulticastDelegate<bool> OnClose;
+    MulticastDelegate<bool&> OnClose;
 
 private:
     HWND m_handle;

@@ -27,7 +27,7 @@
 
 	public:
 
-		InputDevice();
+		InputDevice(HWND hWnd);
 		~InputDevice();
 
 
@@ -107,5 +107,6 @@
 
 		void OnKeyDown(KeyboardInputEventArgs args);
 		void OnMouseMove(RawMouseEventArgs args);
-	};
 
+		HWND m_hWnd;
+	};

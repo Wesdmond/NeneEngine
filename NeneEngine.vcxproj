@@ -19,6 +19,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Delegates.cpp" />
+    <ClCompile Include="src\InputDevice.cpp" />
     <ClCompile Include="src\SpriteRenderer.cpp" />
     <ClCompile Include="src\GBuffer.cpp" />
     <ClCompile Include="src\MeshRenderer.cpp" />
@@ -33,7 +35,7 @@
     <ClCompile Include="libs\imgui\imgui_tables.cpp" />
     <ClCompile Include="libs\imgui\imgui_widgets.cpp" />
     <ClCompile Include="src\NeneEngine.cpp" />
-    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\WinMain.cpp" />
     <ClCompile Include="src\TransformComponent.cpp" />
     <ClCompile Include="src\VulkanRenderer.cpp" />
     <ClCompile Include="src\Window.cpp" />
@@ -43,7 +45,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Delegates.h" />
     <ClInclude Include="src\DXUtility.h" />
+    <ClInclude Include="src\InputDevice.h" />
     <ClInclude Include="src\SpriteRenderer.h" />
     <ClInclude Include="src\GBuffer.h" />
     <ClInclude Include="src\MeshRenderer.h" />

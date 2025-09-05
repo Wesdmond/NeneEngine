@@ -1,7 +1,7 @@
 
 #define WIN32_LEAN_AND_MEAN // Exclude rarely-used stuff from Windows headers
+#define NOMINMAX
 #include <windows.h>
-
 #include "InputDevice.h"
 #include <iostream>
 
@@ -9,7 +9,7 @@
 using namespace DirectX::SimpleMath;
 
 
-InputDevice::InputDevice()
+InputDevice::InputDevice(HWND hWnd) : m_hWnd(hWnd)
 {
 	keys = new std::unordered_set<Keys>();
 	
@@ -18,12 +18,12 @@ InputDevice::InputDevice()
 	Rid[0].usUsagePage = 0x01;
 	Rid[0].usUsage = 0x02;
 	Rid[0].dwFlags = 0;   // adds HID mouse and also ignores legacy mouse messages
-	Rid[0].hwndTarget = hWnd; // TODO: pass hWnd to Input device
+	Rid[0].hwndTarget = m_hWnd; // TODO: pass hWnd to Input device
 
 	Rid[1].usUsagePage = 0x01;
 	Rid[1].usUsage = 0x06;
 	Rid[1].dwFlags = 0;   // adds HID keyboard and also ignores legacy keyboard messages
-	Rid[1].hwndTarget = hWnd;
+	Rid[1].hwndTarget = m_hWnd;
 
 	if (RegisterRawInputDevices(Rid, 2, sizeof(Rid[0])) == FALSE)
 	{
@@ -70,7 +70,7 @@ void InputDevice::OnMouseMove(RawMouseEventArgs args)
 
 	POINT p;
 	GetCursorPos(&p);
-	ScreenToClient(hWnd, &p);
+	ScreenToClient(m_hWnd, &p);
 	
 	MousePosition	= Vector2(p.x, p.y);
 	MouseOffset		= Vector2(args.X, args.Y);

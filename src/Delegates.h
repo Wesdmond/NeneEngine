@@ -389,7 +389,7 @@ public:
 	constexpr static const unsigned int INVALID_ID = (unsigned int)~0;
 private:
 	unsigned int m_Id;
-	GAMEFRAMEWORK_API static unsigned int CURRENT_ID;
+	 static unsigned int CURRENT_ID;
 
 	static int GetNewID()
 	{
