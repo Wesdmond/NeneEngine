@@ -4,6 +4,7 @@
 #include <string>
 #include <Windows.h>
 #include "Delegates.h"
+#include "InputDevice.h" // For access KeyboardInputEventArgs и RawMouseEventArgs
 
 class Window {
 public:
@@ -21,10 +22,15 @@ public:
     int GetWidth() const { return m_width; }
     int GetHeight() const { return m_height; }
 
+#pragma region Delegates/Events
+    // Delegates for basic windows actions
     MulticastDelegate<int, int> OnResize;
-    MulticastDelegate<int, bool> OnKey;
-    MulticastDelegate<int, int> OnMouseMove;
     MulticastDelegate<bool&> OnClose;
+
+    // Delegates for RawInput
+    MulticastDelegate<InputDevice::KeyboardInputEventArgs> OnRawKey;
+    MulticastDelegate<InputDevice::RawMouseEventArgs> OnRawMouse;
+#pragma endregion
 
 private:
     HWND m_handle;
@@ -33,6 +39,6 @@ private:
     int m_width, m_height;
     bool m_shouldClose;
 
-    void RegisterWindowClass();
+    bool RegisterWindowClass();
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 };

@@ -1,6 +1,6 @@
 #include "NeneEngine.h"
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nShowCmd) {
     try {
         NeneEngine engine;
         engine.Initialize();

@@ -47,7 +47,9 @@
   <ItemGroup>
     <ClInclude Include="src\Delegates.h" />
     <ClInclude Include="src\DXUtility.h" />
+    <ClInclude Include="src\Exports.h" />
     <ClInclude Include="src\InputDevice.h" />
+    <ClInclude Include="src\Keys.h" />
     <ClInclude Include="src\SpriteRenderer.h" />
     <ClInclude Include="src\GBuffer.h" />
     <ClInclude Include="src\MeshRenderer.h" />

@@ -29,10 +29,22 @@ void NeneEngine::Initialize() {
     }
 
     m_inputDevice = std::make_unique<InputDevice>(m_window->GetHandle());
+
+    m_window->OnRawKey.AddLambda([this](InputDevice::KeyboardInputEventArgs args) {
+        m_inputDevice->OnKeyDown(args);
+    });
+    m_window->OnRawMouse.AddLambda([this](InputDevice::RawMouseEventArgs args) {
+        m_inputDevice->OnMouseMove(args);
+    });
+
+    // Test function for cursor test
+    m_inputDevice->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
+        std::cout << "Mouse moved to: (" << args.Position.x << ", " << args.Position.y
+                  << "), Offset: (" << args.Offset.x << ", " << args.Offset.y
+                  << "), Wheel: " << args.WheelDelta << "\n";
+    });
     
     m_window->OnResize.AddLambda([this](int w, int h) { OnWindowResized(w, h); });
-    m_window->OnKey.AddLambda([this](int key, bool pressed) { if (pressed) OnKeyPressed(key); });
-    m_window->OnMouseMove.AddLambda([this](int x, int y) { OnMouseMoved(x, y); });
     m_window->OnClose.AddLambda([](bool& canClose) { canClose = true; });
 
     m_window->Show();

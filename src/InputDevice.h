@@ -8,8 +8,10 @@
 
 	class InputDevice
 	{
+		friend class Window;
+		friend class NeneEngine;
 		std::unordered_set<Keys>* keys;
-
+	
 	public:
 
 		struct MouseMoveEventArgs
