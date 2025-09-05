@@ -4,7 +4,7 @@
 #include <d3d12.h>
 #include <wrl.h>
 #include <unordered_map>
-#include "RendererComponent.h"
+#include "Entity.h"
 using Microsoft::WRL::ComPtr;
 
 class Entity;

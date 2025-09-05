@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 
-// Макрос для объявления синглтона с комментариями
+
 #define DECLARE_SINGLETON(className) \
 public: \
     static className& GetInstance() { \
@@ -9,10 +9,8 @@ public: \
         return instance; \
     } \
 private: \
-    /* Приватный конструктор и деструктор для предотвращения создания извне */ \
     className() = default; \
     ~className() = default; \
-    /* Запрещаем копирование и присваивание */ \
     className(const className&) = delete; \
     className& operator=(const className&) = delete;
 

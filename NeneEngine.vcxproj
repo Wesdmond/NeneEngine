@@ -36,11 +36,14 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\TransformComponent.cpp" />
     <ClCompile Include="src\VulkanRenderer.cpp" />
+    <ClCompile Include="src\WinApp.cpp" />
+    <ClCompile Include="src\UIManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\DXUtility.h" />
     <ClInclude Include="src\SpriteRenderer.h" />
     <ClInclude Include="src\GBuffer.h" />
     <ClInclude Include="src\MeshRenderer.h" />
@@ -58,6 +61,8 @@
     <ClInclude Include="src\Renderer.h" />
     <ClInclude Include="src\TransformComponent.h" />
     <ClInclude Include="src\VulkanRenderer.h" />
+    <ClInclude Include="src\WinApp.h" />
+    <ClInclude Include="src\UIManager.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -150,7 +155,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(WindowsSDK_LibraryPath_x64);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -169,7 +174,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
