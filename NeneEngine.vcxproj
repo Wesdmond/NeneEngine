@@ -36,7 +36,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\TransformComponent.cpp" />
     <ClCompile Include="src\VulkanRenderer.cpp" />
-    <ClCompile Include="src\WinApp.cpp" />
+    <ClCompile Include="src\Window.cpp" />
     <ClCompile Include="src\UIManager.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -61,7 +61,7 @@
     <ClInclude Include="src\Renderer.h" />
     <ClInclude Include="src\TransformComponent.h" />
     <ClInclude Include="src\VulkanRenderer.h" />
-    <ClInclude Include="src\WinApp.h" />
+    <ClInclude Include="src\Window.h" />
     <ClInclude Include="src\UIManager.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -186,6 +186,7 @@
   <ImportGroup Label="ExtensionTargets">
     <Import Project="packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets" Condition="Exists('packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets')" />
     <Import Project="packages\Assimp.3.0.0\build\native\Assimp.targets" Condition="Exists('packages\Assimp.3.0.0\build\native\Assimp.targets')" />
+    <Import Project="packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets" Condition="Exists('packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -193,5 +194,6 @@
     </PropertyGroup>
     <Error Condition="!Exists('packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets'))" />
     <Error Condition="!Exists('packages\Assimp.3.0.0\build\native\Assimp.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Assimp.3.0.0\build\native\Assimp.targets'))" />
+    <Error Condition="!Exists('packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets'))" />
   </Target>
 </Project>

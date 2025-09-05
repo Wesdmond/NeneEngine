@@ -1,21 +1,28 @@
 #pragma once
+#include "Window.h"
 #include <memory>
-#include "Renderer.h"
-#include "Scene.h"
-#include "UIManager.h"
+#include "InputDevice.h"
 
-class NeneEngine
-{
+class NeneEngine {
 public:
-    void Initialize();
-    void Run();
-    void Shutdown();
-    void handleWindowMessage(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam);
-private:
-    std::unique_ptr<Renderer> renderer;         // Абстрактный рендерер
-    std::unique_ptr<Scene> scene;               // Сцена
-    //std::unique_ptr<ResourceManager> resMgr;    // Менеджер ресурсов
-    //std::unique_ptr<InputManager> inputMgr;     // Менеджер ввода
-    std::unique_ptr<UIManager> uiMgr;           // Менеджер интерфейса (imgui)
-};
+    NeneEngine();
+    ~NeneEngine();
 
+    void Initialize();
+    void Update(float deltaTime);
+    void Render();
+    void Shutdown();
+
+    void OnWindowResized(int width, int height);
+    void OnKeyPressed(int key);
+    void OnMouseMoved(int x, int y);
+
+    void Run();
+    std::shared_ptr<Window> GetWindow() const { return m_window; }
+
+private:
+    std::shared_ptr<Window> m_window;
+    std::unique_ptr<InputDevice> m_inputDevice;
+    bool m_running;
+    float m_deltaTime;
+};

@@ -1,16 +1,15 @@
-#include <d3d12.h>
-#include <dxgi1_6.h>
-#include "WinApp.h"
+#include "NeneEngine.h"
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine,
-                   int nShowCmd)
-{
-    WinApp winApp;
-
-    if (!winApp.InitWindow(hInstance, nShowCmd)) {
-        MessageBox(NULL, L"Ошибка DirectX12", L"Ошибка", MB_OK);
-        return 0;
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    try {
+        NeneEngine engine;
+        engine.Initialize();
+        engine.Run();
     }
-    return winApp.Run();
+    catch (const std::exception& e) {
+        MessageBoxA(nullptr, e.what(), "Engine Error", MB_ICONERROR);
+        return 1;
+    }
 
+    return 0;
 }
