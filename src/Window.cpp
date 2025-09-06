@@ -45,16 +45,17 @@ void Window::Hide() { ShowWindow(m_handle, SW_HIDE); }
 void Window::Close() { DestroyWindow(m_handle); m_shouldClose = true; }
 bool Window::ShouldClose() const { return m_shouldClose; }
 
-void Window::ProcessMessages() {
+bool Window::ProcessMessages() {
     MSG msg;
-    while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+    if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
         if (msg.message == WM_QUIT) {
             m_shouldClose = true;
-            break;
         }
         TranslateMessage(&msg);
         DispatchMessage(&msg);
-    }   
+        return true;
+    }
+    return false;
 }
 
 bool Window::RegisterWindowClass() {
@@ -90,6 +91,10 @@ LRESULT CALLBACK Window::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
     if (!window) return DefWindowProc(hWnd, uMsg, wParam, lParam);
 
     switch (uMsg) {
+    case WM_ACTIVATE:
+        window->OnPause.Broadcast(LOWORD(wParam) == WA_INACTIVE);
+        return 0;
+        
     case WM_SIZE:
         if (window->OnResize.GetSize() > 0) {
             window->OnResize.Broadcast(LOWORD(lParam), HIWORD(lParam));

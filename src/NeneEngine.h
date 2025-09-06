@@ -1,21 +1,21 @@
 #pragma once
 #include "Window.h"
+#include "GameTimer.h"
 #include <memory>
 #include "InputDevice.h"
+#include "DX12App.h"
 
 class NeneEngine {
 public:
     NeneEngine();
-    ~NeneEngine();
 
     void Initialize();
-    void Update(float deltaTime);
+    void Update();
     void Render();
     void Shutdown();
+    void CalculateFrameStats();
 
     void OnWindowResized(int width, int height);
-    void OnKeyPressed(int key);
-    void OnMouseMoved(int x, int y);
 
     void Run();
     std::shared_ptr<Window> GetWindow() const { return m_window; }
@@ -23,6 +23,11 @@ public:
 private:
     std::shared_ptr<Window> m_window;
     std::unique_ptr<InputDevice> m_inputDevice;
+    std::unique_ptr<DX12App> m_renderer;
+    GameTimer m_timer;
+    HWND m_hWnd;
+    HINSTANCE m_hInstance;
+    std::string m_title = "Nene Engine";
     bool m_running;
-    float m_deltaTime;
+    bool m_isPaused;
 };

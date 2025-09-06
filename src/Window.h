@@ -15,10 +15,11 @@ public:
     void Show();
     void Hide();
     void Close();
-    void ProcessMessages();
+    bool ProcessMessages();
     bool ShouldClose() const;
 
     HWND GetHandle() const { return m_handle; }
+    HINSTANCE GetInstanceHandle() const { return m_instance; }
     int GetWidth() const { return m_width; }
     int GetHeight() const { return m_height; }
 
@@ -26,6 +27,7 @@ public:
     // Delegates for basic windows actions
     MulticastDelegate<int, int> OnResize;
     MulticastDelegate<bool&> OnClose;
+    MulticastDelegate<bool> OnPause;
 
     // Delegates for RawInput
     MulticastDelegate<InputDevice::KeyboardInputEventArgs> OnRawKey;

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.props" Condition="Exists('packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.props')" />
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
       <Configuration>Debug</Configuration>
@@ -19,15 +20,20 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\d3dUtil.cpp" />
+    <ClCompile Include="src\DDSTextureLoader.cpp" />
     <ClCompile Include="src\Delegates.cpp" />
+    <ClCompile Include="src\GameTimer.cpp" />
+    <ClCompile Include="src\GeometryGenerator.cpp" />
     <ClCompile Include="src\InputDevice.cpp" />
+    <ClCompile Include="src\MathHelper.cpp" />
     <ClCompile Include="src\SpriteRenderer.cpp" />
     <ClCompile Include="src\GBuffer.cpp" />
     <ClCompile Include="src\MeshRenderer.cpp" />
     <ClCompile Include="src\Entity.cpp" />
     <ClCompile Include="src\Renderer.cpp" />
     <ClCompile Include="src\Scene.cpp" />
-    <ClCompile Include="src\DirectX12Renderer.cpp" />
+    <ClCompile Include="src\DX12App.cpp" />
     <ClCompile Include="libs\imgui\backends\imgui_impl_dx12.cpp" />
     <ClCompile Include="libs\imgui\backends\imgui_impl_win32.cpp" />
     <ClCompile Include="libs\imgui\imgui.cpp" />
@@ -45,11 +51,15 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\d3dUtil.h" />
+    <ClInclude Include="src\DDSTextureLoader.h" />
     <ClInclude Include="src\Delegates.h" />
-    <ClInclude Include="src\DXUtility.h" />
     <ClInclude Include="src\Exports.h" />
+    <ClInclude Include="src\GameTimer.h" />
+    <ClInclude Include="src\GeometryGenerator.h" />
     <ClInclude Include="src\InputDevice.h" />
     <ClInclude Include="src\Keys.h" />
+    <ClInclude Include="src\MathHelper.h" />
     <ClInclude Include="src\SpriteRenderer.h" />
     <ClInclude Include="src\GBuffer.h" />
     <ClInclude Include="src\MeshRenderer.h" />
@@ -58,7 +68,7 @@
     <ClInclude Include="src\IRenderable.h" />
     <ClInclude Include="src\RendererComponent.h" />
     <ClInclude Include="src\Scene.h" />
-    <ClInclude Include="src\DirectX12Renderer.h" />
+    <ClInclude Include="src\DX12App.h" />
     <ClInclude Include="libs\imgui\backends\imgui_impl_dx12.h" />
     <ClInclude Include="libs\imgui\backends\imgui_impl_win32.h" />
     <ClInclude Include="libs\imgui\imgui.h" />
@@ -66,6 +76,7 @@
     <ClInclude Include="src\Component.h" />
     <ClInclude Include="src\Renderer.h" />
     <ClInclude Include="src\TransformComponent.h" />
+    <ClInclude Include="src\UploadBuffer.h" />
     <ClInclude Include="src\VulkanRenderer.h" />
     <ClInclude Include="src\Window.h" />
     <ClInclude Include="src\UIManager.h" />
@@ -193,6 +204,7 @@
     <Import Project="packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets" Condition="Exists('packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets')" />
     <Import Project="packages\Assimp.3.0.0\build\native\Assimp.targets" Condition="Exists('packages\Assimp.3.0.0\build\native\Assimp.targets')" />
     <Import Project="packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets" Condition="Exists('packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets')" />
+    <Import Project="packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.targets" Condition="Exists('packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -201,5 +213,7 @@
     <Error Condition="!Exists('packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Assimp.redist.3.0.0\build\native\Assimp.redist.targets'))" />
     <Error Condition="!Exists('packages\Assimp.3.0.0\build\native\Assimp.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Assimp.3.0.0\build\native\Assimp.targets'))" />
     <Error Condition="!Exists('packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\directxtk12_desktop_win10.2025.7.10.1\build\native\directxtk12_desktop_win10.targets'))" />
+    <Error Condition="!Exists('packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.props'))" />
+    <Error Condition="!Exists('packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Direct3D.D3D12.1.616.1\build\native\Microsoft.Direct3D.D3D12.targets'))" />
   </Target>
 </Project>
