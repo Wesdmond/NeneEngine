@@ -44,6 +44,11 @@ void DX12App::Set4xMsaaState(const bool value)
 	}
 }
 
+bool DX12App::CheckIsDeviceInit() const
+{
+	return m_device != nullptr;
+}
+
 void DX12App::SetWindowSize(int width, int height)
 {
 	m_clientWidth = width;

@@ -25,10 +25,12 @@ public:
     virtual void Draw(const GameTimer& gt) = 0;
     virtual void OnResize();
 
+
     float AspectRatio() const;
 
     bool Get4xMsaaState() const;
     void Set4xMsaaState(bool value);
+    bool CheckIsDeviceInit() const;
     void SetWindowSize(int width, int height);
 
 protected:
@@ -76,10 +78,6 @@ protected:
     UINT m_rtvDescriptorSize = 0;
     UINT m_dsvDescriptorSize = 0;
     UINT m_cbvSrvUavDescriptorSize = 0;
-
-    // App resources
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 
     //Synchronization objects.
     UINT m_frameIndex;

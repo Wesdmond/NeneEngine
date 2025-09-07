@@ -8,14 +8,17 @@
 
 class NeneEngine {
 public:
-    NeneEngine();
+    NeneEngine(HINSTANCE hInstance);
 
     void Initialize();
+    void SetDelegates();
     void CalculateFrameStats();
 
     void OnWindowResized(int width, int height);
 
-    void Run();
+    int OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+    int Run();
     std::shared_ptr<Window> GetWindow() const { return m_window; }
 
 private:
@@ -23,9 +26,14 @@ private:
     std::unique_ptr<InputDevice> m_inputDevice;
     std::unique_ptr<NeneApp> m_d12App;
     GameTimer m_timer;
+
+    // Application options
+    std::string m_title = "Nene Engine";
     HWND m_hWnd;
     HINSTANCE m_hInstance;
-    std::string m_title = "Nene Engine";
-    bool m_running;
+    bool m_minimized;
+    bool m_maximized;
+
     bool m_isPaused;
+    bool m_resizing;
 };

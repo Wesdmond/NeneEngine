@@ -1,6 +1,5 @@
 #include "Window.h"
 #include <windowsx.h>
-// #include <hidsdi.h>
 
 Window::Window()
     : m_handle(nullptr), m_instance(nullptr), m_width(0), m_height(0), m_shouldClose(false) {
@@ -50,6 +49,7 @@ bool Window::ProcessMessages() {
     if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
         if (msg.message == WM_QUIT) {
             m_shouldClose = true;
+            return true;
         }
         TranslateMessage(&msg);
         DispatchMessage(&msg);
@@ -88,72 +88,15 @@ LRESULT CALLBACK Window::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         window = reinterpret_cast<Window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
     }
 
-    if (!window) return DefWindowProc(hWnd, uMsg, wParam, lParam);
-
-    switch (uMsg) {
-    case WM_ACTIVATE:
-        window->OnPause.Broadcast(LOWORD(wParam) == WA_INACTIVE);
-        return 0;
-        
-    case WM_SIZE:
-        if (window->OnResize.GetSize() > 0) {
-            window->OnResize.Broadcast(LOWORD(lParam), HIWORD(lParam));
-        }
-        return 0;
-    
-    case WM_CLOSE:
-        if (window->OnClose.GetSize() > 0) {
-            bool canClose = true;
-            window->OnClose.Broadcast(canClose);
-            if (canClose) DestroyWindow(hWnd);
-            return 0;
-        }
-        break;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-
-    case WM_INPUT: {
-            // gets buffer size
-            UINT size = 0;
-            GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
-            if (size == 0) break;
-
-            // Allocate buffer and receive data
-            std::vector<BYTE> buffer(size);
-            if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, buffer.data(), &size, sizeof(RAWINPUTHEADER)) == size) {
-                RAWINPUT* raw = reinterpret_cast<RAWINPUT*>(buffer.data());
-
-                if (raw->header.dwType == RIM_TYPEKEYBOARD) {
-                    // Process keyboard
-                    InputDevice::KeyboardInputEventArgs args;
-                    args.MakeCode = raw->data.keyboard.MakeCode;
-                    args.Flags = raw->data.keyboard.Flags;
-                    args.VKey = raw->data.keyboard.VKey;
-                    args.Message = raw->data.keyboard.Message;
-                    window->OnRawKey.Broadcast(args);
-                } else if (raw->header.dwType == RIM_TYPEMOUSE) {
-                    // Process mouse
-                    InputDevice::RawMouseEventArgs args;
-                    args.Mode = raw->data.mouse.usFlags;  // MOUSE_MOVE_RELATIVE or absolute
-                    args.ButtonFlags = raw->data.mouse.usButtonFlags;
-                    args.ExtraInformation = raw->data.mouse.ulExtraInformation;
-                    args.Buttons = raw->data.mouse.ulButtons;
-                    args.WheelDelta = static_cast<short>(raw->data.mouse.usButtonData);  // For mouse wheel
-                    args.X = raw->data.mouse.lLastX;
-                    args.Y = raw->data.mouse.lLastY;
-                    window->OnRawMouse.Broadcast(args);
-                }
-                // default Proc, not necessary
-                PRAWINPUT pRawInput = raw;
-                DefRawInputProc(&pRawInput, 1, sizeof(RAWINPUTHEADER));
-            }
-            return 0;
-    }
+    if (!window)
+    {
+        return DefWindowProc(hWnd, uMsg, wParam, lParam);
     }
 
-    
+    if (uMsg == WM_SIZE)
+        window->SetResolution(LOWORD(lParam), HIWORD(lParam));
+
+    window->OnWndProc.Broadcast(hWnd, uMsg, wParam, lParam);
 
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
 }
