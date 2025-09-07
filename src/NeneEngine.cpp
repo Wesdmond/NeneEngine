@@ -48,7 +48,8 @@ void NeneEngine::Initialize() {
     m_window->Show();
     m_running = true;
 
-    m_renderer = std::make_unique<DX12App>();
+    m_renderer = std::make_unique<DX12App>(m_hInstance, m_hWnd);
+    m_renderer->Initialize();
 }
 
 void NeneEngine::Update()
@@ -108,7 +109,7 @@ void NeneEngine::Run() {
             {
                 CalculateFrameStats();
                 m_renderer->Update(m_timer);
-                m_renderer->Render(m_timer);
+                m_renderer->Draw(m_timer);
             } else
             {
                 Sleep(100);

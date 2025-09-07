@@ -4,8 +4,7 @@ class VulkanRenderer : public Renderer
 {
 	DECLARE_SINGLETON(VulkanRenderer)
 public:
-	void Initialize() override;
+	bool Initialize() override;
 	void Render() override;
 	void Shutdown() override;
 };
-

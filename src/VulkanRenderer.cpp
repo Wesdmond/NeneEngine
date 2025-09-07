@@ -1,7 +1,9 @@
 #include "VulkanRenderer.h"
 
-void VulkanRenderer::Initialize()
-{}
+bool VulkanRenderer::Initialize()
+{
+    return false;
+}
 
 void VulkanRenderer::Render()
 {}
