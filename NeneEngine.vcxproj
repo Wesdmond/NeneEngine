@@ -19,69 +19,70 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\d3dUtil.cpp" />
-    <ClCompile Include="src\DDSTextureLoader.cpp" />
-    <ClCompile Include="src\Delegates.cpp" />
-    <ClCompile Include="src\GameTimer.cpp" />
-    <ClCompile Include="src\GeometryGenerator.cpp" />
-    <ClCompile Include="src\InputDevice.cpp" />
-    <ClCompile Include="src\MathHelper.cpp" />
-    <ClCompile Include="src\NeneApp.cpp" />
-    <ClCompile Include="src\SpriteRenderer.cpp" />
-    <ClCompile Include="src\GBuffer.cpp" />
-    <ClCompile Include="src\MeshRenderer.cpp" />
-    <ClCompile Include="src\Entity.cpp" />
-    <ClCompile Include="src\Renderer.cpp" />
-    <ClCompile Include="src\Scene.cpp" />
-    <ClCompile Include="src\DX12App.cpp" />
+    <ClCompile Include="src\Core\Common\d3dUtil.cpp" />
+    <ClCompile Include="src\Core\Common\DDSTextureLoader.cpp" />
+    <ClCompile Include="src\Core\Common\GameTimer.cpp" />
+    <ClCompile Include="src\Core\Common\GeometryGenerator.cpp" />
+    <ClCompile Include="src\Core\Common\MathHelper.cpp" />
+    <ClCompile Include="src\Core\DX12App.cpp" />
+    <ClCompile Include="src\Core\GBuffer.cpp" />
+    <ClCompile Include="src\Core\InputDevice.cpp" />
+    <ClCompile Include="src\Core\NeneApp.cpp" />
+    <ClCompile Include="src\Core\NeneEngine.cpp" />
+    <ClCompile Include="src\Core\UIManager.cpp" />
+    <ClCompile Include="src\Core\Window.cpp" />
+    <ClCompile Include="src\Core\WinMain.cpp" />
+    <ClCompile Include="src\FrameworkObjects\Entity.cpp" />
+    <ClCompile Include="src\FrameworkObjects\MeshRenderer.cpp" />
+    <ClCompile Include="src\FrameworkObjects\Scene.cpp"/>
+    <ClCompile Include="src\FrameworkObjects\SpriteRenderer.cpp" />
+    <ClCompile Include="src\FrameworkObjects\TransformComponent.cpp" />
     <ClCompile Include="libs\imgui\backends\imgui_impl_dx12.cpp" />
     <ClCompile Include="libs\imgui\backends\imgui_impl_win32.cpp" />
     <ClCompile Include="libs\imgui\imgui.cpp" />
     <ClCompile Include="libs\imgui\imgui_draw.cpp" />
     <ClCompile Include="libs\imgui\imgui_tables.cpp" />
     <ClCompile Include="libs\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="src\NeneEngine.cpp" />
-    <ClCompile Include="src\WinMain.cpp" />
-    <ClCompile Include="src\TransformComponent.cpp" />
-    <ClCompile Include="src\VulkanRenderer.cpp" />
-    <ClCompile Include="src\Window.cpp" />
-    <ClCompile Include="src\UIManager.cpp" />
+    <ClCompile Include="src\Utility\Delegates.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\d3dUtil.h" />
-    <ClInclude Include="src\d3dx12.h" />
-    <ClInclude Include="src\DDSTextureLoader.h" />
-    <ClInclude Include="src\Delegates.h" />
-    <ClInclude Include="src\Exports.h" />
-    <ClInclude Include="src\GameTimer.h" />
-    <ClInclude Include="src\GeometryGenerator.h" />
-    <ClInclude Include="src\InputDevice.h" />
-    <ClInclude Include="src\Keys.h" />
-    <ClInclude Include="src\MathHelper.h" />
-    <ClInclude Include="src\NeneApp.h" />
-    <ClInclude Include="src\SpriteRenderer.h" />
-    <ClInclude Include="src\GBuffer.h" />
-    <ClInclude Include="src\MeshRenderer.h" />
-    <ClInclude Include="src\Entity.h" />
-    <ClInclude Include="src\IUpdatable.h" />
-    <ClInclude Include="src\IRenderable.h" />
-    <ClInclude Include="src\RendererComponent.h" />
-    <ClInclude Include="src\Scene.h" />
-    <ClInclude Include="src\DX12App.h" />
+    <ClInclude Include="src\Core\Common\d3dUtil.h" />
+    <ClInclude Include="src\Core\Common\d3dx12.h" />
+    <ClInclude Include="src\Core\Common\DDSTextureLoader.h" />
+    <ClInclude Include="src\Core\Common\GameTimer.h" />
+    <ClInclude Include="src\Core\Common\GeometryGenerator.h" />
+    <ClInclude Include="src\Core\Common\Keys.h" />
+    <ClInclude Include="src\Core\Common\MathHelper.h" />
+    <ClInclude Include="src\Core\Common\UploadBuffer.h" />
+    <ClInclude Include="src\Core\DX12App.h" />
+    <ClInclude Include="src\Core\GBuffer.h" />
+    <ClInclude Include="src\Core\InputDevice.h" />
+    <ClInclude Include="src\Core\NeneApp.h" />
+    <ClInclude Include="src\Core\NeneEngine.h" />
+    <ClInclude Include="src\Core\UIManager.h" />
+    <ClInclude Include="src\Core\Window.h" />
+    <ClInclude Include="src\FrameworkObjects\Component.h" />
+    <ClInclude Include="src\FrameworkObjects\Entity.h" />
+    <ClInclude Include="src\FrameworkObjects\IRenderable.h" />
+    <ClInclude Include="src\FrameworkObjects\IUpdatable.h" />
+    <ClInclude Include="src\FrameworkObjects\MeshRenderer.h" />
+    <ClInclude Include="src\FrameworkObjects\RendererComponent.h" />
+    <ClInclude Include="src\FrameworkObjects\Scene.h" />
+    <ClInclude Include="src\FrameworkObjects\SpriteRenderer.h" />
+    <ClInclude Include="src\FrameworkObjects\TransformComponent.h" />
     <ClInclude Include="libs\imgui\backends\imgui_impl_dx12.h" />
     <ClInclude Include="libs\imgui\backends\imgui_impl_win32.h" />
     <ClInclude Include="libs\imgui\imgui.h" />
-    <ClInclude Include="src\NeneEngine.h" />
-    <ClInclude Include="src\Component.h" />
-    <ClInclude Include="src\Renderer.h" />
-    <ClInclude Include="src\TransformComponent.h" />
-    <ClInclude Include="src\UploadBuffer.h" />
-    <ClInclude Include="src\VulkanRenderer.h" />
-    <ClInclude Include="src\Window.h" />
-    <ClInclude Include="src\UIManager.h" />
+    <ClInclude Include="src\Utility\Delegates.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="src\FrameworkObjects\Components\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="src\Utility\Delegates.natvis" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

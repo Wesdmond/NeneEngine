@@ -1,6 +1,5 @@
 #pragma once
-#include "Renderer.h"
-#include "d3dUtil.h"
+#include "Common/d3dUtil.h"
 
 #if defined(DEBUG) || defined(_DEBUG)
 #define _CRTDBG_MAP_ALLOC

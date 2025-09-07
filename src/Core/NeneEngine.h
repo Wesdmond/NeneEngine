@@ -11,9 +11,6 @@ public:
     NeneEngine();
 
     void Initialize();
-    void Update();
-    void Render();
-    void Shutdown();
     void CalculateFrameStats();
 
     void OnWindowResized(int width, int height);

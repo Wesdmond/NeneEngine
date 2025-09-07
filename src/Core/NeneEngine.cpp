@@ -59,20 +59,6 @@ void NeneEngine::Initialize() {
     m_running = true;
 }
 
-void NeneEngine::Update()
-{
-    
-}
-
-void NeneEngine::Render()
-{
-    
-}
-
-void NeneEngine::Shutdown()
-{
-}
-
 void NeneEngine::CalculateFrameStats()
 {
     // Code computes the average frames per second, and also the 
