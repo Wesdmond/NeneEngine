@@ -14,16 +14,13 @@ public:
     void SetDelegates();
     void CalculateFrameStats();
 
-    void OnWindowResized(int width, int height);
+    int Run();
 
     int OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-    int Run();
-    std::shared_ptr<Window> GetWindow() const { return m_window; }
-
 private:
     std::shared_ptr<Window> m_window;
-    std::unique_ptr<InputDevice> m_inputDevice;
+    std::shared_ptr<InputDevice> m_inputDevice;
     std::unique_ptr<NeneApp> m_d12App;
     GameTimer m_timer;
 
@@ -33,7 +30,6 @@ private:
     HINSTANCE m_hInstance;
     bool m_minimized;
     bool m_maximized;
-
     bool m_isPaused;
     bool m_resizing;
 };

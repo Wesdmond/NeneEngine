@@ -1,8 +1,10 @@
 ﻿#include "NeneApp.h"
+#include <iostream>
 
 using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
+using namespace SimpleMath;
 
 struct Vertex
 {
@@ -12,7 +14,7 @@ struct Vertex
     Vertex(XMFLOAT3 _Pos, XMFLOAT4 _Color) : Pos(_Pos), Color(_Color) {}
 };
 
-NeneApp::NeneApp(HINSTANCE mhAppInst, HWND mhMainWnd) : DX12App(mhAppInst, mhMainWnd) {}
+NeneApp::NeneApp(HINSTANCE mhAppInst, HWND mhMainWnd, std::shared_ptr<InputDevice> inputDevice) : DX12App(mhAppInst, mhMainWnd), m_inputDevice(inputDevice) {}
 
 bool NeneApp::Initialize()
 {
@@ -37,9 +39,19 @@ bool NeneApp::Initialize()
     return true;
 }
 
+void NeneApp::UpdateInputs(const GameTimer& gt)
+{
+    m_inputDevice->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
+            m_mousePos = Vector2(args.Position.x, args.Position.y);
+            m_mouseDelta = Vector2(args.Offset.x, args.Offset.y);
+            m_mouseWheelDelta = args.WheelDelta;
+        });
+}
+
 void NeneApp::Update(const GameTimer& gt)
 {
-    
+    UpdateInputs(gt);
+
 }
 
 void NeneApp::Draw(const GameTimer& gt)

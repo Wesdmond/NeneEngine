@@ -10,12 +10,6 @@ NeneEngine::NeneEngine(HINSTANCE hInstance) : m_hInstance(hInstance)
     m_window = std::make_shared<Window>();
 }
 
-void NeneEngine::OnWindowResized(int width, int height)
-{
-    m_d12App->SetWindowSize(width, height);
-    m_d12App->OnResize();
-}
-
 int NeneEngine::OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg) {
@@ -164,14 +158,15 @@ void NeneEngine::Initialize() {
 
     m_hWnd = m_window->GetHandle();
     m_hInstance = m_window->GetInstanceHandle();
-    m_inputDevice = std::make_unique<InputDevice>(m_hWnd);
-    m_d12App = std::make_unique<NeneApp>(m_hInstance, m_hWnd);
+    m_inputDevice = std::make_shared<InputDevice>(m_hWnd);
+    m_d12App = std::make_unique<NeneApp>(m_hInstance, m_hWnd, m_inputDevice);
+
     if (!m_d12App->Initialize())
     {
         throw std::runtime_error("Failed to init DX12App");
     }
-    SetDelegates();
 
+    SetDelegates();
     m_window->Show();
 }
 
