@@ -69,7 +69,6 @@ void NeneEngine::CalculateFrameStats()
     static float timeElapsed = 0.0f;
 
     frameCnt++;
-
     // Compute averages over one-second period.
     if( (m_timer.TotalTime() - timeElapsed) >= 1.0f )
     {
@@ -77,7 +76,7 @@ void NeneEngine::CalculateFrameStats()
         float mspf = 1000.0f / fps;
         
         std::wstringstream wss;
-        wss << std::fixed << std::setprecision(2);
+        wss << std::fixed << std::setprecision(0);
         wss << fps;
         wstring fpsStr = wss.str();
         wss.str(L""); // Reset wstringstream
@@ -85,8 +84,8 @@ void NeneEngine::CalculateFrameStats()
         wss << mspf;
         wstring mspfStr = wss.str();
 
-        wstring windowText =
-            L"Nene Engine    fps: " + fpsStr +
+        wstring windowText = AnsiToWString(m_title) +
+            L"   fps: " + fpsStr +
             L"   mspf: " + mspfStr;
 
         SetWindowText(m_hWnd, windowText.c_str());

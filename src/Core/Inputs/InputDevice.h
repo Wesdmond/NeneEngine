@@ -9,6 +9,7 @@
 	{
 		friend class Window;
 		friend class NeneEngine;
+		friend class DX12App;
 		std::unordered_set<Keys>* keys;
 	
 	public:

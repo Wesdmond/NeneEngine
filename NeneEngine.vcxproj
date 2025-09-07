@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Core\Common\Camera.cpp" />
     <ClCompile Include="src\Core\Common\d3dUtil.cpp" />
     <ClCompile Include="src\Core\Common\DDSTextureLoader.cpp" />
     <ClCompile Include="src\Core\Common\GameTimer.cpp" />
@@ -49,6 +50,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Core\Common\Camera.h" />
     <ClInclude Include="src\Core\Common\d3dUtil.h" />
     <ClInclude Include="src\Core\Common\d3dx12.h" />
     <ClInclude Include="src\Core\Common\DDSTextureLoader.h" />

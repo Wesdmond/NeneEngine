@@ -1,5 +1,6 @@
 #pragma once
 #include "Common/d3dUtil.h"
+#include "Inputs/InputDevice.h"
 
 #if defined(DEBUG) || defined(_DEBUG)
 #define _CRTDBG_MAP_ALLOC
@@ -55,8 +56,8 @@ protected:
     UINT m4xMsaaQuality = 0; // quality level of 4X MSAA
 
     //  Pipeline Objects
-    static const int SwapChainBufferCount = 2;
-    static const UINT FrameCount = 2;
+    static constexpr int SwapChainBufferCount = 2;
+    static constexpr UINT FrameCount = 2;
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
     Microsoft::WRL::ComPtr<IDXGISwapChain> m_swapChain;
@@ -91,6 +92,8 @@ protected:
     D3D_DRIVER_TYPE m_d3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
     DXGI_FORMAT m_backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
     DXGI_FORMAT m_depthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    int m_clientWidth = 800;
-    int m_clientHeight = 600;
+    int m_clientWidth = 1920;
+    int m_clientHeight = 1080;
+
+    std::shared_ptr<InputDevice> m_inputDevice;
 };

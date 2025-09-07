@@ -31,7 +31,7 @@ bool DX12App::Get4xMsaaState()const
 	return m4xMsaaState;
 }
 
-void DX12App::Set4xMsaaState(bool value)
+void DX12App::Set4xMsaaState(const bool value)
 {
 	if(m4xMsaaState != value)
 	{
@@ -133,7 +133,7 @@ void DX12App::CreateSwapChain()
 	sd.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	sd.BufferCount = SwapChainBufferCount;
-		sd.OutputWindow = m_hMainWnd;
+	sd.OutputWindow = m_hMainWnd;
 	sd.Windowed = true;
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
