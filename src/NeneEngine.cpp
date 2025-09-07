@@ -1,4 +1,6 @@
 #include "NeneEngine.h"
+
+#include <iomanip>
 #include <iostream>
 
 using namespace std;
@@ -82,14 +84,20 @@ void NeneEngine::CalculateFrameStats()
 
     frameCnt++;
 
-    // Compute averages over one second period.
+    // Compute averages over one-second period.
     if( (m_timer.TotalTime() - timeElapsed) >= 1.0f )
     {
         float fps = (float)frameCnt; // fps = frameCnt / 1
         float mspf = 1000.0f / fps;
-
-            wstring fpsStr = to_wstring(fps);
-        wstring mspfStr = to_wstring(mspf);
+        
+        std::wstringstream wss;
+        wss << std::fixed << std::setprecision(2);
+        wss << fps;
+        wstring fpsStr = wss.str();
+        wss.str(L""); // Reset wstringstream
+        wss << std::setprecision(6);
+        wss << mspf;
+        wstring mspfStr = wss.str();
 
         wstring windowText =
             L"Nene Engine    fps: " + fpsStr +

@@ -19,7 +19,7 @@ void NeneApp::Draw(const GameTimer& gt)
     m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
 
     // Swap the back and front buffers
-    ThrowIfFailed(m_swapChain->Present(0, 0));
+    ThrowIfFailed(m_swapChain->Present(0, 0)); // TODO: DXGI_PRESENT_ALLOW_TEARING if want to disable fps lock
 
     m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
 
