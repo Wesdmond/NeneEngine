@@ -26,7 +26,7 @@
     <ClCompile Include="src\Core\Common\MathHelper.cpp" />
     <ClCompile Include="src\Core\DX12App.cpp" />
     <ClCompile Include="src\Core\GBuffer.cpp" />
-    <ClCompile Include="src\Core\InputDevice.cpp" />
+    <ClCompile Include="src\Core\Inputs\InputDevice.cpp" />
     <ClCompile Include="src\Core\NeneApp.cpp" />
     <ClCompile Include="src\Core\NeneEngine.cpp" />
     <ClCompile Include="src\Core\UIManager.cpp" />
@@ -34,7 +34,7 @@
     <ClCompile Include="src\Core\WinMain.cpp" />
     <ClCompile Include="src\FrameworkObjects\Entity.cpp" />
     <ClCompile Include="src\FrameworkObjects\MeshRenderer.cpp" />
-    <ClCompile Include="src\FrameworkObjects\Scene.cpp"/>
+    <ClCompile Include="src\FrameworkObjects\Scene.cpp" />
     <ClCompile Include="src\FrameworkObjects\SpriteRenderer.cpp" />
     <ClCompile Include="src\FrameworkObjects\TransformComponent.cpp" />
     <ClCompile Include="libs\imgui\backends\imgui_impl_dx12.cpp" />
@@ -54,12 +54,12 @@
     <ClInclude Include="src\Core\Common\DDSTextureLoader.h" />
     <ClInclude Include="src\Core\Common\GameTimer.h" />
     <ClInclude Include="src\Core\Common\GeometryGenerator.h" />
-    <ClInclude Include="src\Core\Common\Keys.h" />
     <ClInclude Include="src\Core\Common\MathHelper.h" />
     <ClInclude Include="src\Core\Common\UploadBuffer.h" />
     <ClInclude Include="src\Core\DX12App.h" />
     <ClInclude Include="src\Core\GBuffer.h" />
-    <ClInclude Include="src\Core\InputDevice.h" />
+    <ClInclude Include="src\Core\Inputs\InputDevice.h" />
+    <ClInclude Include="src\Core\Inputs\Keys.h" />
     <ClInclude Include="src\Core\NeneApp.h" />
     <ClInclude Include="src\Core\NeneEngine.h" />
     <ClInclude Include="src\Core\UIManager.h" />

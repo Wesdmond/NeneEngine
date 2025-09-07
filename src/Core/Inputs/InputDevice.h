@@ -3,7 +3,7 @@
 #include "Keys.h"
 #include <unordered_set>
 #include "SimpleMath.h"
-#include "Delegates.h"
+#include "../../Utility/Delegates.h"
 
 	class InputDevice
 	{

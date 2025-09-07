@@ -3,8 +3,8 @@
 #define NOMINMAX
 #include <string>
 #include <Windows.h>
-#include "Delegates.h"
-#include "InputDevice.h" // For access KeyboardInputEventArgs и RawMouseEventArgs
+#include "../Utility/Delegates.h"
+#include "Inputs/InputDevice.h" // For access KeyboardInputEventArgs и RawMouseEventArgs
 
 class Window {
 public:
