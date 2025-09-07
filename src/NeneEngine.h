@@ -1,9 +1,10 @@
 #pragma once
 #include "Window.h"
+#include "InputDevice.h"
+#include "NeneApp.h"
 #include "GameTimer.h"
 #include <memory>
-#include "InputDevice.h"
-#include "DX12App.h"
+
 
 class NeneEngine {
 public:
@@ -23,7 +24,7 @@ public:
 private:
     std::shared_ptr<Window> m_window;
     std::unique_ptr<InputDevice> m_inputDevice;
-    std::unique_ptr<DX12App> m_renderer;
+    std::unique_ptr<NeneApp> m_d12App;
     GameTimer m_timer;
     HWND m_hWnd;
     HINSTANCE m_hInstance;

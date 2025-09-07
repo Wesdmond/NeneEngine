@@ -26,6 +26,7 @@
     <ClCompile Include="src\GeometryGenerator.cpp" />
     <ClCompile Include="src\InputDevice.cpp" />
     <ClCompile Include="src\MathHelper.cpp" />
+    <ClCompile Include="src\NeneApp.cpp" />
     <ClCompile Include="src\SpriteRenderer.cpp" />
     <ClCompile Include="src\GBuffer.cpp" />
     <ClCompile Include="src\MeshRenderer.cpp" />
@@ -51,6 +52,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\d3dUtil.h" />
+    <ClInclude Include="src\d3dx12.h" />
     <ClInclude Include="src\DDSTextureLoader.h" />
     <ClInclude Include="src\Delegates.h" />
     <ClInclude Include="src\Exports.h" />
@@ -59,6 +61,7 @@
     <ClInclude Include="src\InputDevice.h" />
     <ClInclude Include="src\Keys.h" />
     <ClInclude Include="src\MathHelper.h" />
+    <ClInclude Include="src\NeneApp.h" />
     <ClInclude Include="src\SpriteRenderer.h" />
     <ClInclude Include="src\GBuffer.h" />
     <ClInclude Include="src\MeshRenderer.h" />

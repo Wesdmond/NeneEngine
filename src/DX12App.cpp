@@ -14,13 +14,51 @@ DX12App::~DX12App()
 
 bool  DX12App::Initialize()
 {
-#if defined(DEBUG) || defined(_DEBUG) 
-	// Enable the D3D12 debug layer.
-{
-	ComPtr<ID3D12Debug> debugController;
-	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
-	debugController->EnableDebugLayer();
+	if (!LoadPipeline())
+		return false;
+
+	OnResize();
+	return true;
 }
+
+float DX12App::AspectRatio()const
+{
+	return static_cast<float>(m_clientWidth) / m_clientHeight;
+}
+
+bool DX12App::Get4xMsaaState()const
+{
+	return m4xMsaaState;
+}
+
+void DX12App::Set4xMsaaState(bool value)
+{
+	if(m4xMsaaState != value)
+	{
+		m4xMsaaState = value;
+
+		// TODO: Handle Resize
+		// Recreate the swapchain and buffers with new multisample settings.
+		CreateSwapChain();
+		OnResize();
+	}
+}
+
+void DX12App::SetWindowSize(int width, int height)
+{
+	m_clientWidth = width;
+	m_clientHeight = height;
+}
+
+bool DX12App::LoadPipeline()
+{
+	#if defined(DEBUG) || defined(_DEBUG) 
+	// Enable the D3D12 debug layer.
+	{
+		ComPtr<ID3D12Debug> debugController;
+		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
+		debugController->EnableDebugLayer();
+	}
 #endif
 
 	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&m_dxgiFactory)));
@@ -76,29 +114,6 @@ bool  DX12App::Initialize()
     CreateRtvAndDsvDescriptorHeaps();
 
 	return true;
-}
-
-float DX12App::AspectRatio()const
-{
-	return static_cast<float>(m_clientWidth) / m_clientHeight;
-}
-
-bool DX12App::Get4xMsaaState()const
-{
-	return m4xMsaaState;
-}
-
-void DX12App::Set4xMsaaState(bool value)
-{
-	if(m4xMsaaState != value)
-	{
-		m4xMsaaState = value;
-
-		// TODO: Handle Resize
-		// Recreate the swapchain and buffers with new multisample settings.
-		CreateSwapChain();
-		// OnResize();
-	}
 }
 
 void DX12App::CreateSwapChain()
@@ -170,16 +185,6 @@ D3D12_CPU_DESCRIPTOR_HANDLE DX12App::CurrentBackBufferView()const
 D3D12_CPU_DESCRIPTOR_HANDLE DX12App::DepthStencilView()const
 {
 	return m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-}
-
-void DX12App::Update(const GameTimer& gt)
-{
-	
-}
-
-void DX12App::Draw(const GameTimer& gt)
-{
-	
 }
 
 void DX12App::OnResize()

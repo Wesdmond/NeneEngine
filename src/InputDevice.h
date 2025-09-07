@@ -5,7 +5,6 @@
 #include "SimpleMath.h"
 #include "Delegates.h"
 
-
 	class InputDevice
 	{
 		friend class Window;

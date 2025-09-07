@@ -1,25 +1,33 @@
 #include "NeneEngine.h"
-#include <chrono>
 #include <iostream>
 
 using namespace std;
 
-NeneEngine::NeneEngine() : m_running(false) {
+NeneEngine::NeneEngine() : m_running(false)
+{
     m_window = std::make_shared<Window>();
 }
 
-void NeneEngine::OnWindowResized(int width, int height) {
-
+void NeneEngine::OnWindowResized(int width, int height)
+{
+    m_d12App->SetWindowSize(width, height);
+    m_d12App->OnResize();
 }
 
 void NeneEngine::Initialize() {
-    if (!m_window->Create(m_title, 1920, 1080)) {
+    if (!m_window->Create(m_title, 1920, 1080))
+    {
         throw std::runtime_error("Failed to create window");
     }
 
     m_hWnd = m_window->GetHandle();
     m_hInstance = m_window->GetInstanceHandle();
     m_inputDevice = std::make_unique<InputDevice>(m_hWnd);
+    m_d12App = std::make_unique<NeneApp>(m_hInstance, m_hWnd);
+    if (!m_d12App->Initialize())
+    {
+        throw std::runtime_error("Failed to init DX12App");
+    }
 
     m_window->OnRawKey.AddLambda([this](InputDevice::KeyboardInputEventArgs args) {
         m_inputDevice->OnKeyDown(args);
@@ -47,9 +55,6 @@ void NeneEngine::Initialize() {
 
     m_window->Show();
     m_running = true;
-
-    m_renderer = std::make_unique<DX12App>(m_hInstance, m_hWnd);
-    m_renderer->Initialize();
 }
 
 void NeneEngine::Update()
@@ -94,7 +99,7 @@ void NeneEngine::CalculateFrameStats()
 		
         // Reset for next average.
         frameCnt = 0;
-        timeElapsed += 0.1f;
+        timeElapsed += 1.0f;
     }
 }
 
@@ -108,8 +113,8 @@ void NeneEngine::Run() {
             if (!m_isPaused)
             {
                 CalculateFrameStats();
-                m_renderer->Update(m_timer);
-                m_renderer->Draw(m_timer);
+                m_d12App->Update(m_timer);
+                m_d12App->Draw(m_timer);
             } else
             {
                 Sleep(100);
