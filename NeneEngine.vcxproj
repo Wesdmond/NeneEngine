@@ -38,12 +38,6 @@
     <ClCompile Include="src\FrameworkObjects\Scene.cpp" />
     <ClCompile Include="src\FrameworkObjects\SpriteRenderer.cpp" />
     <ClCompile Include="src\FrameworkObjects\TransformComponent.cpp" />
-    <ClCompile Include="libs\imgui\backends\imgui_impl_dx12.cpp" />
-    <ClCompile Include="libs\imgui\backends\imgui_impl_win32.cpp" />
-    <ClCompile Include="libs\imgui\imgui.cpp" />
-    <ClCompile Include="libs\imgui\imgui_draw.cpp" />
-    <ClCompile Include="libs\imgui\imgui_tables.cpp" />
-    <ClCompile Include="libs\imgui\imgui_widgets.cpp" />
     <ClCompile Include="src\Utility\Delegates.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -75,9 +69,6 @@
     <ClInclude Include="src\FrameworkObjects\Scene.h" />
     <ClInclude Include="src\FrameworkObjects\SpriteRenderer.h" />
     <ClInclude Include="src\FrameworkObjects\TransformComponent.h" />
-    <ClInclude Include="libs\imgui\backends\imgui_impl_dx12.h" />
-    <ClInclude Include="libs\imgui\backends\imgui_impl_win32.h" />
-    <ClInclude Include="libs\imgui\imgui.h" />
     <ClInclude Include="src\Utility\Delegates.h" />
   </ItemGroup>
   <ItemGroup>
