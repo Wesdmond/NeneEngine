@@ -19,6 +19,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="libs\imgui\backends\imgui_impl_dx12.cpp" />
+    <ClCompile Include="libs\imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="libs\imgui\imgui.cpp" />
+    <ClCompile Include="libs\imgui\imgui_demo.cpp" />
+    <ClCompile Include="libs\imgui\imgui_draw.cpp" />
+    <ClCompile Include="libs\imgui\imgui_tables.cpp" />
+    <ClCompile Include="libs\imgui\imgui_widgets.cpp" />
     <ClCompile Include="src\Core\Common\Camera.cpp" />
     <ClCompile Include="src\Core\Common\d3dUtil.cpp" />
     <ClCompile Include="src\Core\Common\DDSTextureLoader.cpp" />
@@ -44,6 +51,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="libs\imgui\backends\imgui_impl_dx12.h" />
+    <ClInclude Include="libs\imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="libs\imgui\imgui.h" />
     <ClInclude Include="src\Core\Common\Camera.h" />
     <ClInclude Include="src\Core\Common\d3dUtil.h" />
     <ClInclude Include="src\Core\Common\d3dx12.h" />
