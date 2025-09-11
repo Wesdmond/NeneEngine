@@ -1,8 +1,10 @@
 ﻿#include "NeneApp.h"
 #include <iostream>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 using Microsoft::WRL::ComPtr;
-using namespace std;
 using namespace DirectX;
 using namespace SimpleMath;
 
@@ -20,7 +22,7 @@ NeneApp::~NeneApp()
 
 bool NeneApp::Initialize()
 {
-    if (!DX12App::Initialize())
+    if (!DX12App::Initialize()) 
         return false;
 
     // Reset the command list to prep for initialization commands.
@@ -185,6 +187,25 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     currPassCB->CopyData(0, mMainPassCB);
 }
 
+DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
+{
+    if (verts.empty()) return DirectX::BoundingBox();
+    DirectX::XMFLOAT3 _min = { FLT_MAX, FLT_MAX, FLT_MAX };
+    DirectX::XMFLOAT3 _max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+    for (const auto& v : verts)
+    {
+        _min.x = std::min(_min.x, v.Pos.x);
+        _min.y = std::min(_min.y, v.Pos.y);
+        _min.z = std::min(_min.z, v.Pos.z);
+        _max.x = std::max(_max.x, v.Pos.x);
+        _max.y = std::max(_max.y, v.Pos.y);
+        _max.z = std::max(_max.z, v.Pos.z);
+    }
+    DirectX::XMFLOAT3 center = { (_min.x + _max.x) / 2, (_min.y + _max.y) / 2, (_min.z + _max.z) / 2 };
+    float extent = std::max({ _max.x - _min.x, _max.y - _min.y, _max.z - _min.z }) / 2;
+    return DirectX::BoundingBox(center, { extent, extent, extent });
+}
+
 void NeneApp::Update(const GameTimer& gt)
 {
     UpdateInputs(gt);
@@ -326,6 +347,173 @@ void NeneApp::LoadTextures()
 
     mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
 }
+
+void NeneApp::LoadTexture(const std::string& filename)
+{
+    std::wstring wFilename = AnsiToWString(filename);  // Из d3dUtil.h
+    auto tex = std::make_unique<Texture>();
+    tex->Name = filename;
+    tex->Filename = wFilename;
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_device.Get(), m_commandList.Get(), wFilename.c_str(),
+        tex->Resource, tex->UploadHeap));  // Или используйте ваш loader для других форматов
+    mTextures[tex->Name] = std::move(tex);
+    // Добавьте в SRV heap (расширьте BuildDescriptorHeaps)
+}
+
+void NeneApp::LoadObjModel(const std::string& filename)
+{
+    // Шаг 2.1: Загрузка сцены Assimp
+    Assimp::Importer importer;
+    const aiScene* pScene = importer.ReadFile(filename,
+        aiProcess_Triangulate      |
+        aiProcess_ConvertToLeftHanded    |
+        aiProcess_JoinIdenticalVertices  |
+        aiProcess_FlipUVs                |
+        aiProcess_CalcTangentSpace       |
+        aiProcess_GenNormals);
+
+    if (!pScene || pScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !pScene->mRootNode)
+    {
+        std::cout << "Assimp error: " << importer.GetErrorString() << std::endl;
+        return;
+    }
+
+    std::string modelName = filename.substr(filename.find_last_of("/\\") + 1);  // Имя модели из пути
+    modelName = modelName.substr(0, modelName.find_last_of('.'));  // Без расширения
+
+    std::string geoName = modelName + "_Geo";
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = geoName;
+
+    std::vector<Vertex> vertices;
+    std::vector<std::uint32_t> indices;  // Предполагаем <65k вершин; иначе uint32_t
+    std::unordered_map<std::string, SubmeshGeometry> drawArgs;  // Submesh по именам
+
+    // Объединяем все меши в один VB/IB для эффективности (опционально; можно отдельно)
+    UINT indexOffset = 0;
+    UINT vertexOffset = 0;
+
+    for (UINT i = 0; i < pScene->mNumMeshes; ++i)
+    {
+        aiMesh* mesh = pScene->mMeshes[i];
+        aiString meshName;
+        if (mesh->mName.length > 0) meshName = mesh->mName;
+        else meshName = aiString(std::to_string(i).c_str());  // Имя по умолчанию
+
+        // Вершины для этого меша
+        for (UINT j = 0; j < mesh->mNumVertices; ++j)
+        {
+            Vertex v;
+            v.Pos = { mesh->mVertices[j].x, mesh->mVertices[j].y, mesh->mVertices[j].z };
+            v.Normal = { mesh->mNormals[j].x, mesh->mNormals[j].y, mesh->mNormals[j].z };
+            if (mesh->mTangents && mesh->mBitangents)  // Тангенты
+                v.TangentU = { mesh->mTangents[j].x, mesh->mTangents[j].y, mesh->mTangents[j].z };
+            if (mesh->mTextureCoords[0])  // UV
+                v.TexC = { mesh->mTextureCoords[0][j].x, mesh->mTextureCoords[0][j].y };
+            else
+                v.TexC = { 0.0f, 0.0f };
+
+            vertices.push_back(v);
+        }
+
+        // Индексы для этого меша
+        for (UINT j = 0; j < mesh->mNumFaces; ++j)
+        {
+            aiFace face = mesh->mFaces[j];
+            for (UINT k = 0; k < face.mNumIndices; ++k)
+                indices.push_back(static_cast<std::uint16_t>(face.mIndices[k] + vertexOffset));
+        }
+
+        // Submesh info
+        SubmeshGeometry submesh;
+        submesh.IndexCount = mesh->mNumFaces * 3;
+        submesh.StartIndexLocation = indexOffset;
+        submesh.BaseVertexLocation = vertexOffset;
+        submesh.Bounds = ComputeBounds(vertices);  // Реализуйте ниже (bounding box)
+
+        drawArgs[meshName.C_Str()] = submesh;
+
+        indexOffset += submesh.IndexCount;
+        vertexOffset += mesh->mNumVertices;
+    }
+
+    // Финализируем геометрию
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), &vertices, vbByteSize, geo->VertexBufferUploader);
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), &indices, vbByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+    geo->DrawArgs = std::move(drawArgs);
+    
+    mGeometries[geoName] = std::move(geo);
+
+    // Шаг 2.3: Создание материалов и текстур
+    for (UINT i = 0; i < pScene->mNumMaterials; ++i)
+    {
+        aiMaterial* mat = pScene->mMaterials[i];
+        aiString matName;
+        mat->Get(AI_MATKEY_NAME, matName);
+        if (matName.length == 0) matName = aiString(std::to_string(i).c_str());
+
+        auto material = std::make_unique<Material>();
+        material->Name = matName.C_Str();
+        material->MatCBIndex = (int)mMaterials.size();  // Индекс в mMaterials
+        material->NumFramesDirty = gNumFrameResources;
+
+        // Диффузный альбедо (из цвета или текстуры)
+        aiColor3D color;
+        mat->Get(AI_MATKEY_COLOR_DIFFUSE, color);
+        material->DiffuseAlbedo = XMFLOAT4(color.r, color.g, color.b, 1.0f);
+        // Текстура (диффузная; путь относительно OBJ)
+        aiString texPath;
+        if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
+        {
+            std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
+            material->DiffuseSrvHeapIndex = (int)mTextures.size();  // Индекс в mTextures
+            LoadTexture(fullPath);  // Реализуйте ниже (расширьте LoadTextures)
+        }
+        else
+        {
+            material->DiffuseSrvHeapIndex = 0;  // Дефолтная текстура
+        }
+
+        // Фреснель и шероховатость (хардкод; можно из свойств Assimp)
+        material->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+        material->Roughness = 0.25f;
+        material->MatTransform = MathHelper::Identity4x4();
+
+        mMaterials[material->Name] = std::move(material);
+    }
+
+    // Шаг 2.4: Создание RenderItem для каждого submesh
+    for (const auto& drawArg : drawArgs)
+    {
+        auto ritem = std::make_unique<RenderItem>();
+        ritem->ObjCBIndex = (UINT)mAllRitems.size();  // Индекс в ObjectCB
+        ritem->Geo = mGeometries[geoName].get();
+        ritem->Mat = mMaterials[drawArg.first].get();  // Материал по имени submesh (упрощенно; сопоставьте правильно)
+        ritem->World = MathHelper::Identity4x4();  // Трансформа из aiNode позже, если нужно
+        ritem->TexTransform = MathHelper::Identity4x4();
+        ritem->NumFramesDirty = gNumFrameResources;
+        ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        ritem->IndexCount = drawArg.second.IndexCount;
+        ritem->StartIndexLocation = drawArg.second.StartIndexLocation;
+        ritem->BaseVertexLocation = drawArg.second.BaseVertexLocation;
+
+        mModelRenderItems[drawArg.first] = std::move(ritem);  // Храним по имени
+        mAllRitems.push_back(mModelRenderItems[drawArg.first]);  // Добавляем в общий список
+        mOpaqueRitems.push_back(mAllRitems.back());  // Предполагаем opaque
+    }
+
+    // Перестройте FrameResources (обновите ObjectCB/MaterialCB размеры)
+    BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
+}
+
 
 void NeneApp::BuildRootSignature()
 {
@@ -508,10 +696,10 @@ void NeneApp::BuildRenderItems()
 
     // All the render items are opaque.
     for (auto& e : mAllRitems)
-        mOpaqueRitems.push_back(e.get());
+        mOpaqueRitems.push_back(e);
 }
 
-void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));

@@ -60,6 +60,8 @@ private:
     void InitCamera();
 
     void LoadTextures();
+    void LoadTexture(const std::string& filename);
+    void LoadObjModel(const std::string& filename);
     void BuildRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
@@ -68,7 +70,7 @@ private:
     void BuildFrameResources();
     void BuildMaterials();
     void BuildRenderItems();
-    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -79,6 +81,7 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
 
+    DirectX::BoundingBox ComputeBounds(const std::vector<Vertex>& verts);
 private:
     Camera m_camera;
     UIManager m_uiManager;
@@ -105,10 +108,12 @@ private:
 
 
     // List of all the render items.
-    std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+    std::vector<std::shared_ptr<RenderItem>> mAllRitems;
 
+	std::unordered_map<std::string, std::shared_ptr<RenderItem>> mModelRenderItems;
+	
     // Render items divided by PSO.
-    std::vector<RenderItem*> mOpaqueRitems;
+    std::vector<std::shared_ptr<RenderItem>> mOpaqueRitems;
 
     PassConstants mMainPassCB;;
 

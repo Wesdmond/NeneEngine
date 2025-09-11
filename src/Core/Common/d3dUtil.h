@@ -5,7 +5,7 @@
 //***************************************************************************************
 
 #pragma once
-
+#define NOMINMAX
 #include <windows.h>
 #include <wrl.h>
 #include <dxgi1_6.h>
@@ -184,7 +184,6 @@ struct MeshGeometry
 	// Use this container to define the Submesh geometries so we can draw
 	// the Submeshes individually.
 	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
-	std::unordered_map<std::string, std::vector<std::pair<GeometryGenerator::MeshData,SubmeshGeometry>>> MultiDrawArgs;
 
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const
 	{
