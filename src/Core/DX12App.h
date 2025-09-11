@@ -1,6 +1,7 @@
 #pragma once
 #include "Common/d3dUtil.h"
 #include "Inputs/InputDevice.h"
+#include "Common/GameTimer.h"
 
 #if defined(DEBUG) || defined(_DEBUG)
 #define _CRTDBG_MAP_ALLOC
@@ -11,8 +12,6 @@
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 #pragma comment(lib, "dxgi.lib")
-
-class GameTimer;
 
 class DX12App
 {
@@ -65,7 +64,7 @@ protected:
     Microsoft::WRL::ComPtr<IDXGISwapChain> m_swapChain;
     Microsoft::WRL::ComPtr<IDXGIFactory4> m_dxgiFactory;
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_renderTargets[SwapChainBufferCount];
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_commandQueue;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_commandList;
@@ -83,7 +82,7 @@ protected:
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
     Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
-    UINT64 m_fenceValue;
+    UINT64 m_currentFence;
 
     // Derived class should set these in derived constructor to customize starting values.
     std::wstring m_MainWndCaption = L"Nene App";

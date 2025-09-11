@@ -1,9 +1,9 @@
 #include "NeneEngine.h"
-
 #include <iomanip>
 #include <iostream>
 
 using namespace std;
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 NeneEngine::NeneEngine(HINSTANCE hInstance) : m_hInstance(hInstance)
 {
@@ -12,6 +12,9 @@ NeneEngine::NeneEngine(HINSTANCE hInstance) : m_hInstance(hInstance)
 
 int NeneEngine::OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
+        return true;
+
     switch (uMsg) {
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE)
@@ -26,7 +29,7 @@ int NeneEngine::OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         return 0;
 
-        // WM_SIZE is sent when the user resizes the window.  
+    // WM_SIZE is sent when the user resizes the window.  
     case WM_SIZE:
         // Save the new client area dimensions.
         m_d12App->SetWindowSize(LOWORD(lParam), HIWORD(lParam));
@@ -175,13 +178,6 @@ void NeneEngine::SetDelegates()
     //m_window->OnWndProc.AddRaw(this, NeneEngine::OnWndProc, HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     m_window->OnWndProc.AddLambda([this](HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         OnWndProc(hWnd, uMsg, wParam, lParam);
-        });
-
-    // Test function for cursor test
-    m_inputDevice->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
-        std::cout << "Mouse moved to: (" << args.Position.x << ", " << args.Position.y
-            << "), Offset: (" << args.Offset.x << ", " << args.Offset.y
-            << "), Wheel: " << args.WheelDelta << "\n";
         });
 }
 

@@ -33,6 +33,7 @@
     <ClCompile Include="src\Core\Common\GeometryGenerator.cpp" />
     <ClCompile Include="src\Core\Common\MathHelper.cpp" />
     <ClCompile Include="src\Core\DX12App.cpp" />
+    <ClCompile Include="src\Core\FrameResource.cpp" />
     <ClCompile Include="src\Core\GBuffer.cpp" />
     <ClCompile Include="src\Core\Inputs\InputDevice.cpp" />
     <ClCompile Include="src\Core\NeneApp.cpp" />
@@ -63,6 +64,7 @@
     <ClInclude Include="src\Core\Common\MathHelper.h" />
     <ClInclude Include="src\Core\Common\UploadBuffer.h" />
     <ClInclude Include="src\Core\DX12App.h" />
+    <ClInclude Include="src\Core\FrameResource.h" />
     <ClInclude Include="src\Core\GBuffer.h" />
     <ClInclude Include="src\Core\Inputs\InputDevice.h" />
     <ClInclude Include="src\Core\Inputs\Keys.h" />

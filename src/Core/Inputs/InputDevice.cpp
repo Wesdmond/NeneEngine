@@ -28,7 +28,7 @@ InputDevice::InputDevice(HWND hWnd) : m_hWnd(hWnd)
 	if (RegisterRawInputDevices(Rid, 2, sizeof(Rid[0])) == FALSE)
 	{
 		auto errorCode = GetLastError();
-		std::cout << "ERROR: " << errorCode << std::endl;
+		std::runtime_error("ERROR: " + errorCode + '\n');
 	}
 }
 

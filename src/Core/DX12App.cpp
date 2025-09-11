@@ -57,7 +57,7 @@ void DX12App::SetWindowSize(int width, int height)
 
 bool DX12App::LoadPipeline()
 {
-	#if defined(DEBUG) || defined(_DEBUG) 
+#if defined(DEBUG) || defined(_DEBUG) 
 	// Enable the D3D12 debug layer.
 	{
 		ComPtr<ID3D12Debug> debugController;
@@ -153,20 +153,20 @@ void DX12App::CreateSwapChain()
 void DX12App::FlushCommandQueue()
 {
 	// Advance the fence value to mark commands up to this fence point.
-	m_fenceValue++;
+	m_currentFence++;
 
 	// Add an instruction to the command queue to set a new fence point.  Because we 
 	// are on the GPU timeline, the new fence point won't be set until the GPU finishes
 	// processing all the commands prior to this Signal().
-	ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValue));
+	ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_currentFence));
 
 	// Wait until the GPU has completed commands up to this fence point.
-	if(m_fence->GetCompletedValue() < m_fenceValue)
+	if(m_fence->GetCompletedValue() < m_currentFence)
 	{
 		HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
 
 		// Fire event when GPU hits current fence.  
-		ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValue, eventHandle));
+		ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
 
 		// Wait until the GPU hits current fence event is fired.
 		WaitForSingleObject(eventHandle, INFINITE);

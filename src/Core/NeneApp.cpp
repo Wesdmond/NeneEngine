@@ -6,15 +6,17 @@ using namespace std;
 using namespace DirectX;
 using namespace SimpleMath;
 
-struct Vertex
+const int gNumFrameResources = 3;
+
+NeneApp::NeneApp(HINSTANCE mhAppInst, HWND mhMainWnd, std::shared_ptr<InputDevice> inputDevice) 
+    : DX12App(mhAppInst, mhMainWnd), m_inputDevice(inputDevice), m_uiManager(mhMainWnd) 
+{}
+
+NeneApp::~NeneApp()
 {
-    DirectX::XMFLOAT3 Pos;
-    DirectX::XMFLOAT4 Color;
-
-    Vertex(XMFLOAT3 _Pos, XMFLOAT4 _Color) : Pos(_Pos), Color(_Color) {}
-};
-
-NeneApp::NeneApp(HINSTANCE mhAppInst, HWND mhMainWnd, std::shared_ptr<InputDevice> inputDevice) : DX12App(mhAppInst, mhMainWnd), m_inputDevice(inputDevice) {}
+    if (m_device != nullptr)
+        FlushCommandQueue();
+}
 
 bool NeneApp::Initialize()
 {
@@ -24,34 +26,188 @@ bool NeneApp::Initialize()
     // Reset the command list to prep for initialization commands.
     ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
 
-    BuildDescriptorHeaps();
-    BuildConstantBuffers();
+    LoadTextures();
     BuildRootSignature();
+    BuildDescriptorHeaps();
     BuildShadersAndInputLayout();
     BuildGeometry();
-    BuildPSO();
+    BuildMaterials();
+    BuildRenderItems();
+    BuildFrameResources();
+    BuildPSOs();
+
+    InitCamera();
+
+    m_uiManager.InitImGui(m_device.Get(), SwapChainBufferCount, mSrvDescriptorHeap.Get());
 
     // Execute the initialization commands.
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
     
+    // Wait until initialization is complete.
+    FlushCommandQueue();
+
     return true;
+}
+
+void NeneApp::OnResize()
+{
+    DX12App::OnResize();
+
+    // The window resized, so update the aspect ratio and recompute the projection matrix.
+    XMMATRIX P = XMMatrixPerspectiveFovLH(m_camera.GetFovY(), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
+    XMStoreFloat4x4(&mProj, P);
 }
 
 void NeneApp::UpdateInputs(const GameTimer& gt)
 {
-    m_inputDevice->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
-            m_mousePos = Vector2(args.Position.x, args.Position.y);
-            m_mouseDelta = Vector2(args.Offset.x, args.Offset.y);
-            m_mouseWheelDelta = args.WheelDelta;
-        });
+    m_mousePos = m_inputDevice->MousePosition;
+    m_mouseDelta = m_inputDevice->MouseOffset;
+    m_mouseWheelDelta = m_inputDevice->MouseWheelDelta;
+
+    if (m_inputDevice->IsKeyDown(Keys::W))
+        m_camera.Walk(m_cameraSpeed * gt.DeltaTime());
+    if (m_inputDevice->IsKeyDown(Keys::A))
+        m_camera.Strafe(-m_cameraSpeed * gt.DeltaTime());
+    if (m_inputDevice->IsKeyDown(Keys::S))
+        m_camera.Walk(-m_cameraSpeed * gt.DeltaTime());
+    if (m_inputDevice->IsKeyDown(Keys::D))
+        m_camera.Strafe(m_cameraSpeed * gt.DeltaTime());
+    if (m_inputDevice->IsKeyDown(Keys::RightButton)) {
+        if (m_mouseDelta != Vector2::Zero) {
+            float yaw = m_mouseDelta.x * m_mouseSensitivity;
+            float pitch = m_mouseDelta.y * m_mouseSensitivity;
+            m_camera.RotateY(yaw);
+            m_camera.Pitch(pitch);
+        }
+    }
+
+    m_inputDevice->MouseOffset = Vector2(0.0f, 0.0f);
+    m_mouseDelta = Vector2::Zero;
+}
+
+void NeneApp::UpdateCamera(const GameTimer& gt)
+{
+    m_camera.UpdateViewMatrix();
+    XMMATRIX view = m_camera.GetView();
+    XMStoreFloat4x4(&mView, view);
+
+    std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
+}
+
+void NeneApp::AnimateMaterials(const GameTimer& gt)
+{
+}
+
+void NeneApp::UpdateObjectCBs(const GameTimer& gt)
+{
+    auto currObjectCB = mCurrFrameResource->ObjectCB.get();
+    for (auto& e : mAllRitems)
+    {
+        // Only update the cbuffer data if the constants have changed.  
+        // This needs to be tracked per frame resource.
+        if (e->NumFramesDirty > 0)
+        {
+            XMMATRIX world = XMLoadFloat4x4(&e->World);
+            XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
+
+            ObjectConstants objConstants;
+            XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+            XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+
+            currObjectCB->CopyData(e->ObjCBIndex, objConstants);
+
+            // Next FrameResource need to be updated too.
+            e->NumFramesDirty--;
+        }
+    }
+}
+
+void NeneApp::UpdateMaterialCBs(const GameTimer& gt)
+{
+    auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
+    for (auto& e : mMaterials)
+    {
+        // Only update the cbuffer data if the constants have changed.  If the cbuffer
+        // data changes, it needs to be updated for each FrameResource.
+        Material* mat = e.second.get();
+        if (mat->NumFramesDirty > 0)
+        {
+            XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
+
+            MaterialConstants matConstants;
+            matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
+            matConstants.FresnelR0 = mat->FresnelR0;
+            matConstants.Roughness = mat->Roughness;
+            XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
+
+            currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
+
+            // Next FrameResource need to be updated too.
+            mat->NumFramesDirty--;
+        }
+    }
+}
+
+void NeneApp::UpdateMainPassCB(const GameTimer& gt)
+{
+    XMMATRIX view = XMLoadFloat4x4(&mView);
+    XMMATRIX proj = XMLoadFloat4x4(&mProj);
+
+    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    XMStoreFloat3(&mMainPassCB.EyePosW, m_camera.GetPosition());
+    mMainPassCB.RenderTargetSize = XMFLOAT2((float)m_clientWidth, (float)m_clientHeight);
+    mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
+    mMainPassCB.NearZ = m_camera.GetNearZ();
+    mMainPassCB.FarZ = m_camera.GetFarZ();
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
+
+    auto currPassCB = mCurrFrameResource->PassCB.get();
+    currPassCB->CopyData(0, mMainPassCB);
 }
 
 void NeneApp::Update(const GameTimer& gt)
 {
     UpdateInputs(gt);
+    UpdateCamera(gt);
 
+    // Cycle through the circular frame resource array.
+    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
+    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+
+    // Has the GPU finished processing the commands of the current frame resource?
+    // If not, wait until the GPU has completed commands up to this fence point.
+    if (mCurrFrameResource->Fence != 0 && m_fence->GetCompletedValue() < mCurrFrameResource->Fence)
+    {
+        HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+        ThrowIfFailed(m_fence->SetEventOnCompletion(mCurrFrameResource->Fence, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
+    }
+
+    AnimateMaterials(gt);
+    UpdateObjectCBs(gt);
+    UpdateMaterialCBs(gt);
+    UpdateMainPassCB(gt);
 }
 
 void NeneApp::Draw(const GameTimer& gt)
@@ -67,65 +223,378 @@ void NeneApp::Draw(const GameTimer& gt)
 
     m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
 
-    // Wait until frame commands are complete. This waiting is inefficient and is
-    // done for simplicity. Later we will show how to organize our rendering code
-    // so we do not have to wait per frame.
-    FlushCommandQueue();
+    // Advance the fence value to mark commands up to this fence point.
+    mCurrFrameResource->Fence = ++m_currentFence;
+
+    // Add an instruction to the command queue to set a new fence point. 
+    // Because we are on the GPU timeline, the new fence point won't be 
+    // set until the GPU finishes processing all the commands prior to this Signal().
+    m_commandQueue->Signal(m_fence.Get(), m_currentFence);
 }
 
 void NeneApp::PopulateCommandList()
 {
-    // Command list allocators can only be reset when the associated 
-    // command lists have finished execution on the GPU; apps should use 
-    // fences to determine GPU execution progress.
-    ThrowIfFailed(m_commandAllocator->Reset());
+    auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 
-    // However, when ExecuteCommandList() is called on a particular command 
-    // list, that command list can then be reset at any time and must be before 
-    // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+    // Reuse the memory associated with command recording.
+    // We can only reset when the associated command lists have finished execution on the GPU.
+    ThrowIfFailed(cmdListAlloc->Reset());
 
-    // Set necessary state.
-    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
+    // Reusing the command list reuses memory.
+    ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
+
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
-    // Indicate that the back buffer will be used as a render target.
-    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    m_commandList->ResourceBarrier(1, &barrier);
+    // Indicate a state transition on the resource usage.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), FALSE, nullptr);
+    // Clear the back buffer and depth buffer.
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
+    m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-    // Record commands.
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightSteelBlue, 0, nullptr);
+    // Specify the buffers we are going to render to.
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
-    // Indicate that the back buffer will now be used to present.
-    barrier = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-    m_commandList->ResourceBarrier(1, &barrier);
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
+    m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+    auto passCB = mCurrFrameResource->PassCB->Resource();
+    m_commandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+    DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
+
+    // Indicate a state transition on the resource usage.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+
+    // Done recording commands.
     ThrowIfFailed(m_commandList->Close());
+}
+
+void NeneApp::SetDelegates()
+{}
+
+void NeneApp::InitCamera()
+{
+    m_camera.SetPosition(0.0f, 1.0f, -5.0f);
+    m_camera.LookAt(m_camera.GetPosition3f(), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f));
+    m_camera.UpdateViewMatrix();
 }
 
 void NeneApp::BuildDescriptorHeaps()
 {
+    //
+    // Create the SRV heap.
+    //
+    D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
+
+    //
+    // Fill out the heap with actual descriptors.
+    //
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+    auto woodCrateTex = mTextures["woodCrateTex"]->Resource;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = woodCrateTex->GetDesc().Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = woodCrateTex->GetDesc().MipLevels;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+    m_device->CreateShaderResourceView(woodCrateTex.Get(), &srvDesc, hDescriptor);
 }
 
-void NeneApp::BuildConstantBuffers()
+void NeneApp::LoadTextures()
 {
+    auto woodCrateTex = std::make_unique<Texture>();
+    woodCrateTex->Name = "woodCrateTex";
+    woodCrateTex->Filename = L"assets/textures/sponza_textures/bricks.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_device.Get(),
+        m_commandList.Get(), woodCrateTex->Filename.c_str(),
+        woodCrateTex->Resource, woodCrateTex->UploadHeap));
+
+    mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
 }
 
 void NeneApp::BuildRootSignature()
 {
+    CD3DX12_DESCRIPTOR_RANGE texTable;
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+    // Root parameter can be a table, root descriptor or root constants.
+    CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+
+    // Perfomance TIP: Order from most frequent to least frequent.
+    slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+    slotRootParameter[1].InitAsConstantBufferView(0);
+    slotRootParameter[2].InitAsConstantBufferView(1);
+    slotRootParameter[3].InitAsConstantBufferView(2);
+
+    auto staticSamplers = GetStaticSamplers();
+
+    // A root signature is an array of root parameters.
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(m_device->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
 
 void NeneApp::BuildShadersAndInputLayout()
 {
+    mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
+    mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
+
+    mInputLayout =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
 }
 
 void NeneApp::BuildGeometry()
 {
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+    boxSubmesh.StartIndexLocation = 0;
+    boxSubmesh.BaseVertexLocation = 0;
+
+
+    std::vector<Vertex> vertices(box.Vertices.size());
+
+    for (size_t i = 0; i < box.Vertices.size(); ++i)
+    {
+        vertices[i].Pos = box.Vertices[i].Position;
+        vertices[i].Normal = box.Vertices[i].Normal;
+        vertices[i].TexC = box.Vertices[i].TexC;
+    }
+
+    std::vector<std::uint16_t> indices = box.GetIndices16();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "boxGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["box"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
 }
 
-void NeneApp::BuildPSO()
+void NeneApp::BuildPSOs()
 {
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
+
+    //
+    // PSO for opaque objects.
+    //
+    ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    opaquePsoDesc.pRootSignature = mRootSignature.Get();
+    opaquePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
+        mShaders["standardVS"]->GetBufferSize()
+    };
+    opaquePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
+        mShaders["opaquePS"]->GetBufferSize()
+    };
+    opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.SampleMask = UINT_MAX;
+    opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePsoDesc.NumRenderTargets = 1;
+    opaquePsoDesc.RTVFormats[0] = m_backBufferFormat;
+    opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+    opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+    opaquePsoDesc.DSVFormat = m_depthStencilFormat;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
+
+
+    //
+    // PSO for opaque wireframe objects.
+    //
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc = opaquePsoDesc;
+    opaqueWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&mPSOs["opaque_wireframe"])));
+}
+
+void NeneApp::BuildFrameResources()
+{
+    for (int i = 0; i < gNumFrameResources; ++i)
+    {
+        mFrameResources.push_back(std::make_unique<FrameResource>(m_device.Get(),
+            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
+    }
+}
+
+void NeneApp::BuildMaterials()
+{
+    auto woodCrate = std::make_unique<Material>();
+    woodCrate->Name = "woodCrate";
+    woodCrate->MatCBIndex = 0;
+    woodCrate->DiffuseSrvHeapIndex = 0;
+    woodCrate->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    woodCrate->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    woodCrate->Roughness = 0.2f;
+
+    mMaterials["woodCrate"] = std::move(woodCrate);
+}
+
+void NeneApp::BuildRenderItems()
+{
+    auto boxRitem = std::make_unique<RenderItem>();
+    boxRitem->ObjCBIndex = 0;
+    boxRitem->Mat = mMaterials["woodCrate"].get();
+    boxRitem->Geo = mGeometries["boxGeo"].get();
+    boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
+    boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
+    boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(boxRitem));
+
+    // All the render items are opaque.
+    for (auto& e : mAllRitems)
+        mOpaqueRitems.push_back(e.get());
+}
+
+void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        auto ri = ritems[i];
+
+        cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+        cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+        cmdList->SetGraphicsRootDescriptorTable(0, tex);
+        cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+        cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+    }
+}
+
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> NeneApp::GetStaticSamplers()
+{
+    // Applications usually only need a handful of samplers.  So just define them all up front
+    // and keep them available as part of the root signature.  
+
+    const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+        0, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+        1, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+        2, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+        3, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+        4, // shaderRegister
+        D3D12_FILTER_ANISOTROPIC, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
+        0.0f,                             // mipLODBias
+        8);                               // maxAnisotropy
+
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
+        5, // shaderRegister
+        D3D12_FILTER_ANISOTROPIC, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
+        0.0f,                              // mipLODBias
+        8);                                // maxAnisotropy
+
+    return {
+        pointWrap, pointClamp,
+        linearWrap, linearClamp,
+        anisotropicWrap, anisotropicClamp };
 }

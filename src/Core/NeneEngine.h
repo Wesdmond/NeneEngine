@@ -1,8 +1,9 @@
 #pragma once
 #include "Window.h"
 #include "Inputs/InputDevice.h"
-#include "NeneApp.h"
 #include "Common/GameTimer.h"
+#include "UIManager.h"
+#include "NeneApp.h"
 #include <memory>
 
 
