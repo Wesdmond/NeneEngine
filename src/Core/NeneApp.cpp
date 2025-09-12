@@ -34,6 +34,7 @@ bool NeneApp::Initialize()
     BuildShadersAndInputLayout();
     BuildGeometry();
     BuildMaterials();
+    LoadObjModel("assets/sponza.obj");
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -95,7 +96,7 @@ void NeneApp::UpdateCamera(const GameTimer& gt)
     XMMATRIX view = m_camera.GetView();
     XMStoreFloat4x4(&mView, view);
 
-    std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
+    // std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
 }
 
 void NeneApp::AnimateMaterials(const GameTimer& gt)
@@ -377,7 +378,8 @@ void NeneApp::LoadObjModel(const std::string& filename)
         std::cout << "Assimp error: " << importer.GetErrorString() << std::endl;
         return;
     }
-
+    std::cout << "Loaded model: " << filename << ", Meshes: " << pScene->mNumMeshes << ", Materials: " << pScene->mNumMaterials << std::endl;
+    
     std::string modelName = filename.substr(filename.find_last_of("/\\") + 1);  // Имя модели из пути
     modelName = modelName.substr(0, modelName.find_last_of('.'));  // Без расширения
 
@@ -393,13 +395,16 @@ void NeneApp::LoadObjModel(const std::string& filename)
     UINT indexOffset = 0;
     UINT vertexOffset = 0;
 
+    // Временная структура для хранения индекса материала для каждого меша
+    std::vector<std::pair<std::string, UINT>> meshMaterialIndices;
+
     for (UINT i = 0; i < pScene->mNumMeshes; ++i)
     {
         aiMesh* mesh = pScene->mMeshes[i];
         aiString meshName;
         if (mesh->mName.length > 0) meshName = mesh->mName;
         else meshName = aiString(std::to_string(i).c_str());  // Имя по умолчанию
-
+        
         // Вершины для этого меша
         for (UINT j = 0; j < mesh->mNumVertices; ++j)
         {
@@ -421,7 +426,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
         {
             aiFace face = mesh->mFaces[j];
             for (UINT k = 0; k < face.mNumIndices; ++k)
-                indices.push_back(static_cast<std::uint16_t>(face.mIndices[k] + vertexOffset));
+                indices.push_back(face.mIndices[k] + vertexOffset);
         }
 
         // Submesh info
@@ -432,25 +437,11 @@ void NeneApp::LoadObjModel(const std::string& filename)
         submesh.Bounds = ComputeBounds(vertices);  // Реализуйте ниже (bounding box)
 
         drawArgs[meshName.C_Str()] = submesh;
+        meshMaterialIndices.push_back({ meshName.C_Str(), mesh->mMaterialIndex });
 
         indexOffset += submesh.IndexCount;
         vertexOffset += mesh->mNumVertices;
     }
-
-    // Финализируем геометрию
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), &vertices, vbByteSize, geo->VertexBufferUploader);
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), &indices, vbByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-    geo->DrawArgs = std::move(drawArgs);
-    
-    mGeometries[geoName] = std::move(geo);
 
     // Шаг 2.3: Создание материалов и текстур
     for (UINT i = 0; i < pScene->mNumMaterials; ++i)
@@ -493,10 +484,47 @@ void NeneApp::LoadObjModel(const std::string& filename)
     // Шаг 2.4: Создание RenderItem для каждого submesh
     for (const auto& drawArg : drawArgs)
     {
-        auto ritem = std::make_unique<RenderItem>();
-        ritem->ObjCBIndex = (UINT)mAllRitems.size();  // Индекс в ObjectCB
+        auto ritem = std::make_shared<RenderItem>();
+        ritem->ObjCBIndex = (UINT)mAllRitems.size();
         ritem->Geo = mGeometries[geoName].get();
-        ritem->Mat = mMaterials[drawArg.first].get();  // Материал по имени submesh (упрощенно; сопоставьте правильно)
+
+        // Fallback материал (теперь доступен, так как BuildMaterials() вызван раньше)
+        Material* fallbackMat = nullptr;
+        if (mMaterials.find("woodCrate") != mMaterials.end())
+            fallbackMat = mMaterials["woodCrate"].get();
+        else if (!mMaterials.empty())
+            fallbackMat = mMaterials.begin()->second.get();
+        else
+        {
+            std::cout << "Error: No materials available for submesh '" << drawArg.first << "'" << std::endl;
+            continue;
+        }
+        // КЛЮЧЕВОЕ: Сопоставление по materialIndex (НЕ по имени меша!)
+        auto it = std::find_if(meshMaterialIndices.begin(), meshMaterialIndices.end(),
+            [&](const auto& pair) { return pair.first == drawArg.first; });
+
+        if (it != meshMaterialIndices.end())
+        {
+            UINT matIndex = it->second;
+            aiMaterial* mat = pScene->mMaterials[matIndex];
+            aiString matName;
+            mat->Get(AI_MATKEY_NAME, matName);
+            if (mMaterials.find(matName.C_Str()) != mMaterials.end())
+            {
+                ritem->Mat = mMaterials[matName.C_Str()].get();
+            }
+            else
+            {
+                std::cout << "Warning: Material " << matName.C_Str() << " not found for submesh " << drawArg.first << std::endl;
+                ritem->Mat = mMaterials["woodCrate"].get(); // Fallback
+            }
+        }
+        else
+        {
+            std::cout << "Warning: No material index found for submesh " << drawArg.first << std::endl;
+            ritem->Mat = mMaterials["woodCrate"].get(); // Fallback
+        }
+        
         ritem->World = MathHelper::Identity4x4();  // Трансформа из aiNode позже, если нужно
         ritem->TexTransform = MathHelper::Identity4x4();
         ritem->NumFramesDirty = gNumFrameResources;
@@ -509,9 +537,25 @@ void NeneApp::LoadObjModel(const std::string& filename)
         mAllRitems.push_back(mModelRenderItems[drawArg.first]);  // Добавляем в общий список
         mOpaqueRitems.push_back(mAllRitems.back());  // Предполагаем opaque
     }
+    // Финализируем геометрию
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
 
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+    geo->DrawArgs = std::move(drawArgs);
+    
+    mGeometries[geoName] = std::move(geo);
+
+    std::cout << "Total RenderItems after LoadObjModel: " << mAllRitems.size() << std::endl;
+    std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl << std::endl;;
     // Перестройте FrameResources (обновите ObjectCB/MaterialCB размеры)
-    BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
+    // BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
 }
 
 
@@ -685,7 +729,7 @@ void NeneApp::BuildMaterials()
 
 void NeneApp::BuildRenderItems()
 {
-    auto boxRitem = std::make_unique<RenderItem>();
+    auto boxRitem = std::make_shared<RenderItem>();
     boxRitem->ObjCBIndex = 0;
     boxRitem->Mat = mMaterials["woodCrate"].get();
     boxRitem->Geo = mGeometries["boxGeo"].get();
@@ -698,6 +742,8 @@ void NeneApp::BuildRenderItems()
     // All the render items are opaque.
     for (auto& e : mAllRitems)
         mOpaqueRitems.push_back(e);
+    std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
+    std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl;
 }
 
 void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
