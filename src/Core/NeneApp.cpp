@@ -34,7 +34,7 @@ bool NeneApp::Initialize()
     LoadTextures();
     BuildMaterials();
     BuildGeometry();
-    LoadObjModel("assets/sponza.obj");
+    LoadObjModel("assets/sponza.obj", Matrix::CreateScale(0.02f));
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -329,7 +329,7 @@ void NeneApp::LoadTextures()
     LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
 }
 
-void NeneApp::LoadTexture(const std::string& filename)
+bool NeneApp::LoadTexture(const std::string& filename)
 {
     std::string texName = filename.substr(filename.find_last_of("/\\") + 1);
     texName = texName.substr(0, texName.find_last_of('.'));
@@ -344,7 +344,7 @@ void NeneApp::LoadTexture(const std::string& filename)
     if (FAILED(hr))
     {
         std::cout << "Failed to load texture: '" << filename << "', HRESULT: 0x" << std::hex << hr << std::endl;
-        return;
+        return false;
     }
 
     // TODO: logging std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
@@ -368,9 +368,10 @@ void NeneApp::LoadTexture(const std::string& filename)
     tex->GpuHandle.ptr += mTextures.size() * mCbvSrvDescriptorSize;
 
     mTextures[tex->Name] = std::move(tex);
+    return true;
 }
 
-void NeneApp::LoadObjModel(const std::string& filename)
+void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
 {
     Assimp::Importer importer;
     const aiScene* pScene = importer.ReadFile(filename,
@@ -508,15 +509,35 @@ void NeneApp::LoadObjModel(const std::string& filename)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
             int texIndexBefore = (int)mTextures.size();
-            LoadTexture(fullPath);
-            material->DiffuseSrvHeapIndex = texIndexBefore;
+            if (LoadTexture(fullPath))
+                material->DiffuseSrvHeapIndex = texIndexBefore;
+            else
+                material->DiffuseSrvHeapIndex = 0;
 
-            // TODO: Logging
-            // std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
+            // TODO: Logging: std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
         }
         else
         {
             material->DiffuseSrvHeapIndex = 0;  // If no texture - error texture than.
+        }
+
+        if (mat->GetTexture(aiTextureType_NORMALS, 0, &texPath) == AI_SUCCESS)
+        {
+            std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
+            int texIndexBefore = (int)mTextures.size();
+            if (LoadTexture(fullPath))
+                material->NormalSrvHeapIndex = texIndexBefore;
+            else
+                material->NormalSrvHeapIndex = 0;
+        }
+        if (mat->GetTexture(aiTextureType_SPECULAR, 0, &texPath) == AI_SUCCESS)
+        {
+            std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
+            int texIndexBefore = (int)mTextures.size();
+            if (LoadTexture(fullPath))
+                material->SpecularSrvHeapIndex = texIndexBefore;
+            else
+                material->SpecularSrvHeapIndex = 0;
         }
 
         // Fresnel and Roughness. TODO: Make it with Assimp
@@ -547,7 +568,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
             ritem->Mat = mMaterials["error"].get();
         }
         
-        ritem->World = MathHelper::Identity4x4();  // TODO: aiNode transform
+        ritem->World = Transform;  // TODO: aiNode transform
         ritem->TexTransform = MathHelper::Identity4x4();
         ritem->NumFramesDirty = gNumFrameResources;
         ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -566,7 +587,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
     
     mGeometries[geo->Name] = std::move(geo);
 
-    //// resize ObjectCB/MaterialCB
+    // resize ObjectCB/MaterialCB
     BuildFrameResources();
 }
 

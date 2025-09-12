@@ -60,8 +60,8 @@ private:
     void InitCamera();
 
     void LoadTextures();
-    void LoadTexture(const std::string& filename);
-    void LoadObjModel(const std::string& filename);
+    bool LoadTexture(const std::string& filename);
+    void LoadObjModel(const std::string& filename, SimpleMath::Matrix Transform);
     void BuildRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
