@@ -312,6 +312,7 @@ struct Texture
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> Resource = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> UploadHeap = nullptr;
+	D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle;
 };
 
 #ifndef ThrowIfFailed

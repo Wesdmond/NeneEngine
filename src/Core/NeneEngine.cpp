@@ -163,14 +163,15 @@ void NeneEngine::Initialize() {
     m_hInstance = m_window->GetInstanceHandle();
     m_inputDevice = std::make_shared<InputDevice>(m_hWnd);
     m_d12App = std::make_unique<NeneApp>(m_hInstance, m_hWnd, m_inputDevice);
-
+    m_d12App->SetWindowSize(m_window->GetWidth(), m_window->GetHeight());
+    m_window->Show();
+    
     if (!m_d12App->Initialize())
     {
         throw std::runtime_error("Failed to init DX12App");
     }
 
     SetDelegates();
-    m_window->Show();
 }
 
 void NeneEngine::SetDelegates()

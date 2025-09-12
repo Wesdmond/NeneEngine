@@ -28,13 +28,14 @@ bool NeneApp::Initialize()
     // Reset the command list to prep for initialization commands.
     ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
 
-    LoadTextures();
     BuildRootSignature();
-    BuildDescriptorHeaps();
     BuildShadersAndInputLayout();
+    LoadTextures();
     BuildGeometry();
-    BuildMaterials();
     LoadObjModel("assets/sponza.obj");
+    BuildDescriptorHeaps();
+    BuildMaterials();
+    BuildTextureSRVs();
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -50,7 +51,6 @@ bool NeneApp::Initialize()
     
     // Wait until initialization is complete.
     FlushCommandQueue();
-
     return true;
 }
 
@@ -314,51 +314,40 @@ void NeneApp::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.NumDescriptors = mTextures.size() + 1;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
 
-    //
-    // Fill out the heap with actual descriptors.
-    //
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-    auto woodCrateTex = mTextures["woodCrateTex"]->Resource;
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Format = woodCrateTex->GetDesc().Format;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-    srvDesc.Texture2D.MipLevels = woodCrateTex->GetDesc().MipLevels;
-    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-    m_device->CreateShaderResourceView(woodCrateTex.Get(), &srvDesc, hDescriptor);
+    mCbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
 void NeneApp::LoadTextures()
 {
-    auto woodCrateTex = std::make_unique<Texture>();
-    woodCrateTex->Name = "woodCrateTex";
-    woodCrateTex->Filename = L"assets/textures/sponza_textures/bricks.dds";
-    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_device.Get(),
-        m_commandList.Get(), woodCrateTex->Filename.c_str(),
-        woodCrateTex->Resource, woodCrateTex->UploadHeap));
-
-    mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
+    LoadTexture("assets/textures/texture_error.dds");
+    LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
 }
 
 void NeneApp::LoadTexture(const std::string& filename)
 {
-    std::wstring wFilename = AnsiToWString(filename);  // Из d3dUtil.h
+    std::string texName = filename.substr(filename.find_last_of("/\\") + 1);  // Имя модели из пути
+    texName = texName.substr(0, texName.find_last_of('.'));  // Без расширения
+    
+    std::wstring wFilename = AnsiToWString(filename);
     auto tex = std::make_unique<Texture>();
-    tex->Name = filename;
+    tex->Name = texName;
     tex->Filename = wFilename;
-    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_device.Get(), m_commandList.Get(), wFilename.c_str(),
-        tex->Resource, tex->UploadHeap));  // Или используйте ваш loader для других форматов
+
+    HRESULT hr = DirectX::CreateDDSTextureFromFile12(m_device.Get(), m_commandList.Get(), wFilename.c_str(),
+        tex->Resource, tex->UploadHeap);
+    if (FAILED(hr))
+    {
+        std::cout << "Failed to load texture: '" << filename << "', HRESULT: 0x" << std::hex << hr << std::endl;
+        return;  // Не добавляем в mTextures
+    }
+
     mTextures[tex->Name] = std::move(tex);
-    // Добавьте в SRV heap (расширьте BuildDescriptorHeaps)
+    // std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
 }
 
 void NeneApp::LoadObjModel(const std::string& filename)
@@ -384,7 +373,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
     modelName = modelName.substr(0, modelName.find_last_of('.'));  // Без расширения
 
     std::string geoName = modelName + "_Geo";
-    auto geo = std::make_unique<MeshGeometry>();
+    auto geo = std::make_shared<MeshGeometry>();
     geo->Name = geoName;
 
     std::vector<Vertex> vertices;
@@ -465,12 +454,14 @@ void NeneApp::LoadObjModel(const std::string& filename)
         if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
-            material->DiffuseSrvHeapIndex = (int)mTextures.size();  // Индекс в mTextures
-            LoadTexture(fullPath);  // Реализуйте ниже (расширьте LoadTextures)
+            int texIndexBefore = (int)mTextures.size();  // Индекс до загрузки
+            LoadTexture(fullPath);
+            material->DiffuseSrvHeapIndex = texIndexBefore;  // Теперь = реальный индекс в mTextures
+            // std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
         }
         else
         {
-            material->DiffuseSrvHeapIndex = 0;  // Дефолтная текстура
+            material->DiffuseSrvHeapIndex = 0;  // Fallback на первую текстуру (белая)
         }
 
         // Фреснель и шероховатость (хардкод; можно из свойств Assimp)
@@ -481,12 +472,25 @@ void NeneApp::LoadObjModel(const std::string& filename)
         mMaterials[material->Name] = std::move(material);
     }
 
+    // Финализируем геометрию
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+    geo->DrawArgs = drawArgs;
+    
     // Шаг 2.4: Создание RenderItem для каждого submesh
     for (const auto& drawArg : drawArgs)
     {
         auto ritem = std::make_shared<RenderItem>();
         ritem->ObjCBIndex = (UINT)mAllRitems.size();
-        ritem->Geo = mGeometries[geoName].get();
+        ritem->Geo = geo.get();
 
         // Fallback материал (теперь доступен, так как BuildMaterials() вызван раньше)
         Material* fallbackMat = nullptr;
@@ -537,25 +541,15 @@ void NeneApp::LoadObjModel(const std::string& filename)
         mAllRitems.push_back(mModelRenderItems[drawArg.first]);  // Добавляем в общий список
         mOpaqueRitems.push_back(mAllRitems.back());  // Предполагаем opaque
     }
-    // Финализируем геометрию
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-    geo->DrawArgs = std::move(drawArgs);
     
-    mGeometries[geoName] = std::move(geo);
 
     std::cout << "Total RenderItems after LoadObjModel: " << mAllRitems.size() << std::endl;
     std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl << std::endl;;
-    // Перестройте FrameResources (обновите ObjectCB/MaterialCB размеры)
-    // BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
+    
+    mGeometries[geo->Name] = std::move(geo);
+
+    //// Перестройте FrameResources (обновите ObjectCB/MaterialCB размеры)
+    //BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
 }
 
 
@@ -705,6 +699,51 @@ void NeneApp::BuildPSOs()
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&mPSOs["opaque_wireframe"])));
 }
 
+void NeneApp::BuildTextureSRVs()
+{
+    if (mSrvDescriptorHeap == nullptr || mTextures.empty())
+    {
+        std::cout << "No SRV heap or textures to build SRVs" << std::endl;
+        return;
+    }
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    UINT texIndex = 0;
+
+    for (const auto& texPair : mTextures)
+    {
+        auto& tex = texPair.second;
+        if (tex->Resource == nullptr)
+        {
+            std::cout << "Skipping NULL resource for texture: " << tex->Name << std::endl;
+            continue;
+        }
+
+        // Стандартный SRV дескриптор для 2D текстуры (из d3dx12.h или вручную)
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = tex->Resource->GetDesc().Format;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        srvDesc.Texture2D.MipLevels = tex->Resource->GetDesc().MipLevels;
+        srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+        // Создаём SRV в хипе
+        m_device->CreateShaderResourceView(tex->Resource.Get(), &srvDesc, hDesc);
+
+        // Сохраняем GPU handle для отладки (опционально)
+        tex->GpuHandle = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+        tex->GpuHandle.ptr += texIndex * mCbvSrvDescriptorSize;
+
+        hDesc.Offset(1, mCbvSrvDescriptorSize);
+        texIndex++;
+
+        std::cout << "Created SRV for texture: '" << tex->Name << "' at heap index " << (texIndex - 1) << std::endl;
+    }
+
+    std::cout << "Built SRVs for " << mTextures.size() << " textures" << std::endl;
+}
+
 void NeneApp::BuildFrameResources()
 {
     for (int i = 0; i < gNumFrameResources; ++i)
@@ -719,7 +758,7 @@ void NeneApp::BuildMaterials()
     auto woodCrate = std::make_unique<Material>();
     woodCrate->Name = "woodCrate";
     woodCrate->MatCBIndex = 0;
-    woodCrate->DiffuseSrvHeapIndex = 0;
+    woodCrate->DiffuseSrvHeapIndex = 1;
     woodCrate->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     woodCrate->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     woodCrate->Roughness = 0.2f;

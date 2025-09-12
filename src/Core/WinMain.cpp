@@ -12,6 +12,7 @@ void EnableConsole()
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nShowCmd) {
 #if defined(DEBUG) || defined(_DEBUG)
     EnableConsole();
+    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
     try {
         NeneEngine engine(hInstance);

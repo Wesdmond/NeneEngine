@@ -39,7 +39,7 @@ bool Window::Create(const std::string& title, int width, int height) {
     return m_handle != nullptr;
 }
 
-void Window::Show() { ShowWindow(m_handle, SW_SHOW); }
+void Window::Show() { ShowWindow(m_handle, SW_SHOW);  UpdateWindow(m_handle);}
 void Window::Hide() { ShowWindow(m_handle, SW_HIDE); }
 void Window::Close() { DestroyWindow(m_handle); m_shouldClose = true; }
 bool Window::ShouldClose() const { return m_shouldClose; }

@@ -141,7 +141,7 @@ void DX12App::CreateSwapChain()
 	sd.OutputWindow = m_hMainWnd;
 	sd.Windowed = true;
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
 	// Note: Swap chain uses queue to perform flush.
 	ThrowIfFailed(m_dxgiFactory->CreateSwapChain(
@@ -213,7 +213,7 @@ void DX12App::OnResize()
 		SwapChainBufferCount, 
 		m_clientWidth, m_clientHeight, 
 		m_backBufferFormat, 
-		DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING));
+		DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
 	m_currBackBuffer = 0;
 	 
