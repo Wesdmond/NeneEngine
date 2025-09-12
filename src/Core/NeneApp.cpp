@@ -332,8 +332,8 @@ void NeneApp::LoadTextures()
 
 void NeneApp::LoadTexture(const std::string& filename)
 {
-    std::string texName = filename.substr(filename.find_last_of("/\\") + 1);  // Имя модели из пути
-    texName = texName.substr(0, texName.find_last_of('.'));  // Без расширения
+    std::string texName = filename.substr(filename.find_last_of("/\\") + 1);
+    texName = texName.substr(0, texName.find_last_of('.'));
     
     std::wstring wFilename = AnsiToWString(filename);
     auto tex = std::make_unique<Texture>();
@@ -345,16 +345,15 @@ void NeneApp::LoadTexture(const std::string& filename)
     if (FAILED(hr))
     {
         std::cout << "Failed to load texture: '" << filename << "', HRESULT: 0x" << std::hex << hr << std::endl;
-        return;  // Не добавляем в mTextures
+        return;
     }
 
     mTextures[tex->Name] = std::move(tex);
-    // std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
+    // TODO: logging std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
 }
 
 void NeneApp::LoadObjModel(const std::string& filename)
 {
-    // Шаг 2.1: Загрузка сцены Assimp
     Assimp::Importer importer;
     const aiScene* pScene = importer.ReadFile(filename,
         aiProcess_Triangulate      |
@@ -370,18 +369,18 @@ void NeneApp::LoadObjModel(const std::string& filename)
     }
     std::cout << "Loaded model: " << filename << ", Meshes: " << pScene->mNumMeshes << ", Materials: " << pScene->mNumMaterials << std::endl;
     
-    std::string modelName = filename.substr(filename.find_last_of("/\\") + 1);  // Имя модели из пути
-    modelName = modelName.substr(0, modelName.find_last_of('.'));  // Без расширения
+    std::string modelName = filename.substr(filename.find_last_of("/\\") + 1);
+    modelName = modelName.substr(0, modelName.find_last_of('.'));
 
     std::string geoName = modelName + "_Geo";
     auto geo = std::make_shared<MeshGeometry>();
     geo->Name = geoName;
 
-    // Объединяем все меши в один VB/IB для эффективности (опционально; можно отдельно)
+    // One index and vertex buffer for all models
     UINT indexOffset = 0;
     UINT vertexOffset = 0;
 
-    // Временная структура для хранения индекса материала для каждого меша
+    // temp sctructure for material index
     std::vector<std::pair<std::string, UINT>> meshMaterialIndices;
 
     std::uint32_t vertexCount = 0;
@@ -396,7 +395,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
     }
     std::vector<Vertex> vertices(vertexCount);
     std::vector<std::uint32_t> indices(indexCount);
-    std::unordered_map<std::string, SubmeshGeometry> drawArgs;  // Submesh по именам
+    std::unordered_map<std::string, SubmeshGeometry> drawArgs;
 
     for (UINT iMesh = 0; iMesh < pScene->mNumMeshes; ++iMesh)
     {
@@ -430,7 +429,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
         submesh.IndexCount = mesh->mNumFaces * 3;
         submesh.StartIndexLocation = startIndex;
         submesh.BaseVertexLocation = vertexOffset;
-        submesh.Bounds = ComputeBounds(vertices);  // Реализуйте ниже (bounding box)
+        submesh.Bounds = ComputeBounds(vertices);  // TODO: Check bounding box correction
         submesh.MaterialIndex = mesh->mMaterialIndex;
 
         drawArgs[meshName.C_Str()] = submesh;
@@ -439,7 +438,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
         vertexOffset += mesh->mNumVertices;
     }
 
-    // Финализируем геометрию
+    // Write vertices and indices to buffers
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
 
@@ -459,7 +458,6 @@ void NeneApp::LoadObjModel(const std::string& filename)
     geo->DrawArgs = drawArgs;
 
 
-    // Materials and textures
     for (UINT i = 0; i < pScene->mNumMaterials; ++i)
     {
         aiMaterial* mat = pScene->mMaterials[i];
@@ -468,6 +466,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
         std::cout << "Material " << i << ": " << matName.C_Str() << std::endl;
     }
 
+    // Materials and textures
     for (UINT i = 0; i < pScene->mNumMaterials; ++i)
     {
         aiMaterial* mat = pScene->mMaterials[i];
@@ -510,7 +509,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
         mMaterials[material->Name] = std::move(material);
     }
     
-    // Шаг 2.4: Создание RenderItem для каждого submesh
+    // RenderItem creation
     for (const auto& drawArg : drawArgs)
     {
         auto ritem = std::make_shared<RenderItem>();
@@ -530,7 +529,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
             ritem->Mat = mMaterials["error"].get();
         }
         
-        ritem->World = MathHelper::Identity4x4();  // Трансформа из aiNode позже, если нужно
+        ritem->World = MathHelper::Identity4x4();  // TODO: aiNode transform
         ritem->TexTransform = MathHelper::Identity4x4();
         ritem->NumFramesDirty = gNumFrameResources;
         ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -538,9 +537,9 @@ void NeneApp::LoadObjModel(const std::string& filename)
         ritem->StartIndexLocation = drawArg.second.StartIndexLocation;
         ritem->BaseVertexLocation = drawArg.second.BaseVertexLocation;
 
-        mModelRenderItems[drawArg.first] = std::move(ritem);  // Храним по имени
-        mAllRitems.push_back(mModelRenderItems[drawArg.first]);  // Добавляем в общий список
-        mOpaqueRitems.push_back(mAllRitems.back());  // Предполагаем opaque
+        mModelRenderItems[drawArg.first] = std::move(ritem);
+        mAllRitems.push_back(mModelRenderItems[drawArg.first]);
+        mOpaqueRitems.push_back(mAllRitems.back());
     }
     
 
@@ -549,8 +548,8 @@ void NeneApp::LoadObjModel(const std::string& filename)
     
     mGeometries[geo->Name] = std::move(geo);
 
-    //// Перестройте FrameResources (обновите ObjectCB/MaterialCB размеры)
-    BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
+    //// resize ObjectCB/MaterialCB
+    BuildFrameResources();
 }
 
 
@@ -720,7 +719,7 @@ void NeneApp::BuildTextureSRVs()
             continue;
         }
 
-        // Стандартный SRV дескриптор для 2D текстуры (из d3dx12.h или вручную)
+        // Basic SRV descriptor for 2D texture (d3dx12.h)
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format = tex->Resource->GetDesc().Format;
@@ -729,17 +728,17 @@ void NeneApp::BuildTextureSRVs()
         srvDesc.Texture2D.MipLevels = tex->Resource->GetDesc().MipLevels;
         srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-        // Создаём SRV в хипе
+        // Create SRV
         m_device->CreateShaderResourceView(tex->Resource.Get(), &srvDesc, hDesc);
 
-        // Сохраняем GPU handle для отладки (опционально)
+        // GPU handle for debugging (optional)
         tex->GpuHandle = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
         tex->GpuHandle.ptr += texIndex * mCbvSrvDescriptorSize;
 
         hDesc.Offset(1, mCbvSrvDescriptorSize);
         texIndex++;
 
-        // std::cout << "Created SRV for texture: '" << tex->Name << "' at heap index " << (texIndex - 1) << std::endl;
+        // TODO: logging: std::cout << "Created SRV for texture: '" << tex->Name << "' at heap index " << (texIndex - 1) << std::endl;
     }
 
     std::cout << "Built SRVs for " << mTextures.size() << " textures" << std::endl;
