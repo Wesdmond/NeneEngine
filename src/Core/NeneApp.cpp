@@ -28,14 +28,13 @@ bool NeneApp::Initialize()
     // Reset the command list to prep for initialization commands.
     ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
 
+    BuildDescriptorHeaps();
     BuildRootSignature();
     BuildShadersAndInputLayout();
     LoadTextures();
     BuildMaterials();
     BuildGeometry();
     LoadObjModel("assets/sponza.obj");
-    BuildDescriptorHeaps();
-    BuildTextureSRVs();
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -316,7 +315,7 @@ void NeneApp::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = mTextures.size() + 1;
+    srvHeapDesc.NumDescriptors = 128;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -348,8 +347,27 @@ void NeneApp::LoadTexture(const std::string& filename)
         return;
     }
 
-    mTextures[tex->Name] = std::move(tex);
     // TODO: logging std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    hDesc.Offset((INT)mTextures.size(), mCbvSrvDescriptorSize); // Смещение для следующего свободного слота
+
+    // Basic SRV descriptor for 2D texture (d3dx12.h)
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = tex->Resource->GetDesc().Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = tex->Resource->GetDesc().MipLevels;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+    // Create SRV
+    m_device->CreateShaderResourceView(tex->Resource.Get(), &srvDesc, hDesc);
+
+    tex->GpuHandle = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+    tex->GpuHandle.ptr += mTextures.size() * mCbvSrvDescriptorSize;
+
+    mTextures[tex->Name] = std::move(tex);
 }
 
 void NeneApp::LoadObjModel(const std::string& filename)
@@ -709,7 +727,6 @@ void NeneApp::BuildTextureSRVs()
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
     UINT texIndex = 0;
-
     for (const auto& texPair : mTextures)
     {
         auto& tex = texPair.second;
