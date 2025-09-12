@@ -6,6 +6,7 @@
 #include "Inputs/InputDevice.h"
 #include <SimpleMath.h>
 #include "FrameResource.h"
+#include <map>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -101,7 +102,7 @@ private:
 
 	std::unordered_map<std::string, std::shared_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
-	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+	std::map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 

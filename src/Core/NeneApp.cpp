@@ -31,10 +31,10 @@ bool NeneApp::Initialize()
     BuildRootSignature();
     BuildShadersAndInputLayout();
     LoadTextures();
+    BuildMaterials();
     BuildGeometry();
     LoadObjModel("assets/sponza.obj");
     BuildDescriptorHeaps();
-    BuildMaterials();
     BuildTextureSRVs();
     BuildRenderItems();
     BuildFrameResources();
@@ -57,6 +57,8 @@ bool NeneApp::Initialize()
 void NeneApp::OnResize()
 {
     DX12App::OnResize();
+
+    m_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
     // The window resized, so update the aspect ratio and recompute the projection matrix.
     XMMATRIX P = XMMatrixPerspectiveFovLH(m_camera.GetFovY(), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
@@ -356,7 +358,6 @@ void NeneApp::LoadObjModel(const std::string& filename)
     Assimp::Importer importer;
     const aiScene* pScene = importer.ReadFile(filename,
         aiProcess_Triangulate      |
-        aiProcess_ConvertToLeftHanded    |
         aiProcess_JoinIdenticalVertices  |
         aiProcess_FlipUVs                |
         aiProcess_CalcTangentSpace       |
@@ -376,10 +377,6 @@ void NeneApp::LoadObjModel(const std::string& filename)
     auto geo = std::make_shared<MeshGeometry>();
     geo->Name = geoName;
 
-    std::vector<Vertex> vertices;
-    std::vector<std::uint32_t> indices;  // Предполагаем <65k вершин; иначе uint32_t
-    std::unordered_map<std::string, SubmeshGeometry> drawArgs;  // Submesh по именам
-
     // Объединяем все меши в один VB/IB для эффективности (опционально; можно отдельно)
     UINT indexOffset = 0;
     UINT vertexOffset = 0;
@@ -387,94 +384,70 @@ void NeneApp::LoadObjModel(const std::string& filename)
     // Временная структура для хранения индекса материала для каждого меша
     std::vector<std::pair<std::string, UINT>> meshMaterialIndices;
 
-    for (UINT i = 0; i < pScene->mNumMeshes; ++i)
+    std::uint32_t vertexCount = 0;
+    std::uint32_t indexCount = 0;
     {
-        aiMesh* mesh = pScene->mMeshes[i];
+        aiMesh* tmpMesh = nullptr;
+        for (size_t i = 0; i < pScene->mNumMeshes; i++) {
+            tmpMesh = pScene->mMeshes[i];
+            vertexCount += tmpMesh->mNumVertices;
+            indexCount += tmpMesh->mNumFaces * 3;
+        }
+    }
+    std::vector<Vertex> vertices(vertexCount);
+    std::vector<std::uint32_t> indices(indexCount);
+    std::unordered_map<std::string, SubmeshGeometry> drawArgs;  // Submesh по именам
+
+    for (UINT iMesh = 0; iMesh < pScene->mNumMeshes; ++iMesh)
+    {
+        aiMesh* mesh = pScene->mMeshes[iMesh];
         aiString meshName;
         if (mesh->mName.length > 0) meshName = mesh->mName;
-        else meshName = aiString(std::to_string(i).c_str());  // Имя по умолчанию
+        else meshName = aiString(std::to_string(iMesh).c_str());  // Default name
         
-        // Вершины для этого меша
-        for (UINT j = 0; j < mesh->mNumVertices; ++j)
+        // Vertices
+        for (UINT i = 0; i < mesh->mNumVertices; ++i)
         {
             Vertex v;
-            v.Pos = { mesh->mVertices[j].x, mesh->mVertices[j].y, mesh->mVertices[j].z };
-            v.Normal = { mesh->mNormals[j].x, mesh->mNormals[j].y, mesh->mNormals[j].z };
-            if (mesh->mTangents && mesh->mBitangents)  // Тангенты
-                v.TangentU = { mesh->mTangents[j].x, mesh->mTangents[j].y, mesh->mTangents[j].z };
-            if (mesh->mTextureCoords[0])  // UV
-                v.TexC = { mesh->mTextureCoords[0][j].x, mesh->mTextureCoords[0][j].y };
-            else
-                v.TexC = { 0.0f, 0.0f };
-
-            vertices.push_back(v);
+            v.Pos = { mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z };
+            if (mesh->HasNormals())                 v.Normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
+            if (mesh->HasTangentsAndBitangents())   v.TangentU = { mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z };
+            if (mesh->HasTextureCoords(0))          v.TexC = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+            vertices[vertexOffset + i] = v;
         }
 
-        // Индексы для этого меша
+        UINT startIndex = indexOffset;
+        // Indices
         for (UINT j = 0; j < mesh->mNumFaces; ++j)
         {
             aiFace face = mesh->mFaces[j];
             for (UINT k = 0; k < face.mNumIndices; ++k)
-                indices.push_back(face.mIndices[k] + vertexOffset);
+                indices[indexOffset++] = face.mIndices[k];
         }
 
         // Submesh info
         SubmeshGeometry submesh;
         submesh.IndexCount = mesh->mNumFaces * 3;
-        submesh.StartIndexLocation = indexOffset;
+        submesh.StartIndexLocation = startIndex;
         submesh.BaseVertexLocation = vertexOffset;
         submesh.Bounds = ComputeBounds(vertices);  // Реализуйте ниже (bounding box)
+        submesh.MaterialIndex = mesh->mMaterialIndex;
 
         drawArgs[meshName.C_Str()] = submesh;
         meshMaterialIndices.push_back({ meshName.C_Str(), mesh->mMaterialIndex });
 
-        indexOffset += submesh.IndexCount;
         vertexOffset += mesh->mNumVertices;
-    }
-
-    // Шаг 2.3: Создание материалов и текстур
-    for (UINT i = 0; i < pScene->mNumMaterials; ++i)
-    {
-        aiMaterial* mat = pScene->mMaterials[i];
-        aiString matName;
-        mat->Get(AI_MATKEY_NAME, matName);
-        if (matName.length == 0) matName = aiString(std::to_string(i).c_str());
-
-        auto material = std::make_unique<Material>();
-        material->Name = matName.C_Str();
-        material->MatCBIndex = (int)mMaterials.size();  // Индекс в mMaterials
-        material->NumFramesDirty = gNumFrameResources;
-
-        // Диффузный альбедо (из цвета или текстуры)
-        aiColor3D color;
-        mat->Get(AI_MATKEY_COLOR_DIFFUSE, color);
-        material->DiffuseAlbedo = XMFLOAT4(color.r, color.g, color.b, 1.0f);
-        // Текстура (диффузная; путь относительно OBJ)
-        aiString texPath;
-        if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
-        {
-            std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
-            int texIndexBefore = (int)mTextures.size();  // Индекс до загрузки
-            LoadTexture(fullPath);
-            material->DiffuseSrvHeapIndex = texIndexBefore;  // Теперь = реальный индекс в mTextures
-            // std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
-        }
-        else
-        {
-            material->DiffuseSrvHeapIndex = 0;  // Fallback на первую текстуру (белая)
-        }
-
-        // Фреснель и шероховатость (хардкод; можно из свойств Assimp)
-        material->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-        material->Roughness = 0.25f;
-        material->MatTransform = MathHelper::Identity4x4();
-
-        mMaterials[material->Name] = std::move(material);
     }
 
     // Финализируем геометрию
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
     geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
     geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
@@ -484,49 +457,77 @@ void NeneApp::LoadObjModel(const std::string& filename)
     geo->IndexFormat = DXGI_FORMAT_R32_UINT;
     geo->IndexBufferByteSize = ibByteSize;
     geo->DrawArgs = drawArgs;
+
+
+    // Materials and textures
+    for (UINT i = 0; i < pScene->mNumMaterials; ++i)
+    {
+        aiMaterial* mat = pScene->mMaterials[i];
+        aiString matName;
+        mat->Get(AI_MATKEY_NAME, matName);
+        std::cout << "Material " << i << ": " << matName.C_Str() << std::endl;
+    }
+
+    for (UINT i = 0; i < pScene->mNumMaterials; ++i)
+    {
+        aiMaterial* mat = pScene->mMaterials[i];
+        aiString matName;
+        mat->Get(AI_MATKEY_NAME, matName);
+        if (matName.length == 0) matName = aiString(std::to_string(i).c_str());
+
+        auto material = std::make_unique<Material>();
+        material->Name = matName.C_Str();
+        material->MatCBIndex = (int)mMaterials.size();
+        material->NumFramesDirty = gNumFrameResources;
+
+        // Diffuse color
+        aiColor3D color;
+        mat->Get(AI_MATKEY_COLOR_DIFFUSE, color);
+        material->DiffuseAlbedo = XMFLOAT4(color.r, color.g, color.b, 1.0f);
+
+        // Diffuse Texture
+        aiString texPath;
+        if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
+        {
+            std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
+            int texIndexBefore = (int)mTextures.size();
+            LoadTexture(fullPath);
+            material->DiffuseSrvHeapIndex = texIndexBefore;
+
+            // TODO: Logging
+            // std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
+        }
+        else
+        {
+            material->DiffuseSrvHeapIndex = 0;  // If no texture - error texture than.
+        }
+
+        // Fresnel and Roughness. TODO: Make it with Assimp
+        material->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+        material->Roughness = 0.25f;
+        material->MatTransform = MathHelper::Identity4x4();
+
+        mMaterials[material->Name] = std::move(material);
+    }
     
     // Шаг 2.4: Создание RenderItem для каждого submesh
     for (const auto& drawArg : drawArgs)
     {
         auto ritem = std::make_shared<RenderItem>();
         ritem->ObjCBIndex = (UINT)mAllRitems.size();
-        ritem->Geo = geo.get();
+        ritem->Geo = geo.get();      
 
-        // Fallback материал (теперь доступен, так как BuildMaterials() вызван раньше)
-        Material* fallbackMat = nullptr;
-        if (mMaterials.find("woodCrate") != mMaterials.end())
-            fallbackMat = mMaterials["woodCrate"].get();
-        else if (!mMaterials.empty())
-            fallbackMat = mMaterials.begin()->second.get();
-        else
+        aiMaterial* mat = pScene->mMaterials[drawArg.second.MaterialIndex];
+        aiString matName;
+        mat->Get(AI_MATKEY_NAME, matName);
+        if (mMaterials.at(matName.C_Str()) != nullptr)
         {
-            std::cout << "Error: No materials available for submesh '" << drawArg.first << "'" << std::endl;
-            continue;
-        }
-        // КЛЮЧЕВОЕ: Сопоставление по materialIndex (НЕ по имени меша!)
-        auto it = std::find_if(meshMaterialIndices.begin(), meshMaterialIndices.end(),
-            [&](const auto& pair) { return pair.first == drawArg.first; });
-
-        if (it != meshMaterialIndices.end())
-        {
-            UINT matIndex = it->second;
-            aiMaterial* mat = pScene->mMaterials[matIndex];
-            aiString matName;
-            mat->Get(AI_MATKEY_NAME, matName);
-            if (mMaterials.find(matName.C_Str()) != mMaterials.end())
-            {
-                ritem->Mat = mMaterials[matName.C_Str()].get();
-            }
-            else
-            {
-                std::cout << "Warning: Material " << matName.C_Str() << " not found for submesh " << drawArg.first << std::endl;
-                ritem->Mat = mMaterials["woodCrate"].get(); // Fallback
-            }
+            ritem->Mat = mMaterials[matName.C_Str()].get();
         }
         else
         {
-            std::cout << "Warning: No material index found for submesh " << drawArg.first << std::endl;
-            ritem->Mat = mMaterials["woodCrate"].get(); // Fallback
+            std::cout << "Warning: Material " << matName.C_Str() << " not found for submesh " << drawArg.first << std::endl;
+            ritem->Mat = mMaterials["error"].get();
         }
         
         ritem->World = MathHelper::Identity4x4();  // Трансформа из aiNode позже, если нужно
@@ -549,7 +550,7 @@ void NeneApp::LoadObjModel(const std::string& filename)
     mGeometries[geo->Name] = std::move(geo);
 
     //// Перестройте FrameResources (обновите ObjectCB/MaterialCB размеры)
-    //BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
+    BuildFrameResources();  // Ваш метод; он использует mAllRitems.size()
 }
 
 
@@ -738,7 +739,7 @@ void NeneApp::BuildTextureSRVs()
         hDesc.Offset(1, mCbvSrvDescriptorSize);
         texIndex++;
 
-        std::cout << "Created SRV for texture: '" << tex->Name << "' at heap index " << (texIndex - 1) << std::endl;
+        // std::cout << "Created SRV for texture: '" << tex->Name << "' at heap index " << (texIndex - 1) << std::endl;
     }
 
     std::cout << "Built SRVs for " << mTextures.size() << " textures" << std::endl;
@@ -755,15 +756,25 @@ void NeneApp::BuildFrameResources()
 
 void NeneApp::BuildMaterials()
 {
-    auto woodCrate = std::make_unique<Material>();
-    woodCrate->Name = "woodCrate";
-    woodCrate->MatCBIndex = 0;
-    woodCrate->DiffuseSrvHeapIndex = 1;
-    woodCrate->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    woodCrate->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-    woodCrate->Roughness = 0.2f;
+    auto mat = std::make_unique<Material>();
+    mat->Name = "error";
+    mat->MatCBIndex = 0;
+    mat->DiffuseSrvHeapIndex = 0;
+    mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    mat->Roughness = 0.2f;
 
-    mMaterials["woodCrate"] = std::move(woodCrate);
+    mMaterials["error"] = std::move(mat);
+
+    mat = std::make_unique<Material>();
+    mat->Name = "woodCrate";
+    mat->MatCBIndex = 1;
+    mat->DiffuseSrvHeapIndex = 1;
+    mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    mat->Roughness = 0.2f;
+
+    mMaterials["woodCrate"] = std::move(mat);
 }
 
 void NeneApp::BuildRenderItems()
