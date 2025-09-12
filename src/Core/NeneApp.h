@@ -115,6 +115,9 @@ private:
 	
     // Render items divided by PSO.
     std::vector<std::shared_ptr<RenderItem>> mOpaqueRitems;
+    std::vector<std::shared_ptr<RenderItem>> mAdvancedRitems;
+    std::vector<std::shared_ptr<RenderItem>> mNormalRitems;
+    std::vector<std::shared_ptr<RenderItem>> mBasicRitems;
 
     PassConstants mMainPassCB;;
 

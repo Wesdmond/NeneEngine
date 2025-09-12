@@ -275,7 +275,7 @@ void NeneApp::PopulateCommandList()
         D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     // Clear the back buffer and depth buffer.
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::DarkGray, 0, nullptr);
     m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
     // Specify the buffers we are going to render to.
@@ -287,9 +287,19 @@ void NeneApp::PopulateCommandList()
     m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
 
     auto passCB = mCurrFrameResource->PassCB->Resource();
-    m_commandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
-
+    m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+    
+    // Рендер базовых материалов
+    m_commandList->SetPipelineState(mPSOs["opaque"].Get());
     DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
+
+    // Рендер материалов с нормальной картой
+    m_commandList->SetPipelineState(mPSOs["normal"].Get());
+    DrawRenderItems(m_commandList.Get(), mNormalRitems);
+
+    // Рендер материалов с displacement
+    m_commandList->SetPipelineState(mPSOs["displacement"].Get());
+    DrawRenderItems(m_commandList.Get(), mAdvancedRitems);
 
     // Indicate a state transition on the resource usage.
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -515,8 +525,7 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
                 material->DiffuseSrvHeapIndex = 0;
 
             // TODO: Logging: std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
-        }
-        else
+        } else
         {
             material->DiffuseSrvHeapIndex = 0;  // If no texture - error texture than.
         }
@@ -525,19 +534,35 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
             int texIndexBefore = (int)mTextures.size();
+            
             if (LoadTexture(fullPath))
+            {
                 material->NormalSrvHeapIndex = texIndexBefore;
+                material->HasNormalMap = true;
+            }
             else
                 material->NormalSrvHeapIndex = 0;
+        } else
+        {
+            material->NormalSrvHeapIndex = 0;
+            std::cout << "No normal map for material " << material->Name << std::endl;
         }
-        if (mat->GetTexture(aiTextureType_SPECULAR, 0, &texPath) == AI_SUCCESS)
+
+        if (mat->GetTexture(aiTextureType_DISPLACEMENT, 0, &texPath) == AI_SUCCESS)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
             int texIndexBefore = (int)mTextures.size();
             if (LoadTexture(fullPath))
-                material->SpecularSrvHeapIndex = texIndexBefore;
+            {
+                material->DisplacementSrvHeapIndex = texIndexBefore;
+                material->HasDisplacementMap = true;
+            }
             else
-                material->SpecularSrvHeapIndex = 0;
+                material->DisplacementSrvHeapIndex = 0;
+        } else
+        {
+            material->DisplacementSrvHeapIndex = 0;
+            // TODO: logging: std::cout << "No displacement  map for material " << material->Name << std::endl;
         }
 
         // Fresnel and Roughness. TODO: Make it with Assimp
@@ -594,22 +619,26 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
 
 void NeneApp::BuildRootSignature()
 {
-    CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTables[3];
+    texTables[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Diffuse
+    texTables[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // Normal
+    texTables[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2); // Displacement
 
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+    CD3DX12_ROOT_PARAMETER slotRootParameter[6];
 
     // Perfomance TIP: Order from most frequent to least frequent.
-    slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-    slotRootParameter[1].InitAsConstantBufferView(0);
-    slotRootParameter[2].InitAsConstantBufferView(1);
-    slotRootParameter[3].InitAsConstantBufferView(2);
+    slotRootParameter[0].InitAsDescriptorTable(1, &texTables[0], D3D12_SHADER_VISIBILITY_PIXEL); // Diffuse
+    slotRootParameter[1].InitAsDescriptorTable(1, &texTables[1], D3D12_SHADER_VISIBILITY_PIXEL); // Normal
+    slotRootParameter[2].InitAsDescriptorTable(1, &texTables[2], D3D12_SHADER_VISIBILITY_ALL); // Displacement
+    slotRootParameter[3].InitAsConstantBufferView(0);
+    slotRootParameter[4].InitAsConstantBufferView(1);
+    slotRootParameter[5].InitAsConstantBufferView(2);
 
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(6, slotRootParameter,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -634,8 +663,27 @@ void NeneApp::BuildRootSignature()
 
 void NeneApp::BuildShadersAndInputLayout()
 {
+    // Basic shader (no normalMap and displacementMap)
     mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
     mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
+
+    // Shader with normalMap
+    D3D_SHADER_MACRO normalMacros[] = {
+        { "USE_NORMAL_MAP", "1" },
+        { "USE_DISPLACEMENT_MAP", "0" },
+        { nullptr, nullptr }
+    };
+    mShaders["normalVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "VS", "vs_5_0");
+    mShaders["normalPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "PS", "ps_5_0");
+
+    // Shader with normalMap and displacementMap
+    D3D_SHADER_MACRO displacementMacros[] = {
+        { "USE_NORMAL_MAP", "1" },
+        { "USE_DISPLACEMENT_MAP", "1" },
+        { nullptr, nullptr }
+    };
+    mShaders["displacementVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "VS", "vs_5_0");
+    mShaders["displacementPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "PS", "ps_5_0");
 
     mInputLayout =
     {
@@ -655,7 +703,6 @@ void NeneApp::BuildGeometry()
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
     boxSubmesh.StartIndexLocation = 0;
     boxSubmesh.BaseVertexLocation = 0;
-
 
     std::vector<Vertex> vertices(box.Vertices.size());
 
@@ -728,14 +775,29 @@ void NeneApp::BuildPSOs()
     opaquePsoDesc.DSVFormat = m_depthStencilFormat;
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
 
-
     //
     // PSO for opaque wireframe objects.
     //
-
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc = opaquePsoDesc;
     opaqueWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&mPSOs["opaque_wireframe"])));
+
+    //
+    // PSO for objects with normal map.
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC normalPsoDesc = opaquePsoDesc;
+    normalPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["normalVS"]->GetBufferPointer()), mShaders["normalVS"]->GetBufferSize() };
+    normalPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["normalPS"]->GetBufferPointer()), mShaders["normalPS"]->GetBufferSize() };
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&normalPsoDesc, IID_PPV_ARGS(&mPSOs["normal"])));
+    
+    //
+    // PSO for objects with displacement and normal  map.
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC displacementPsoDesc = normalPsoDesc;
+    displacementPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["displacementVS"]->GetBufferPointer()), mShaders["displacementVS"]->GetBufferSize() };
+    displacementPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["displacementPS"]->GetBufferPointer()), mShaders["displacementPS"]->GetBufferSize() };
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&displacementPsoDesc, IID_PPV_ARGS(&mPSOs["displacement"])));
+   
 }
 
 void NeneApp::BuildTextureSRVs()
@@ -826,9 +888,20 @@ void NeneApp::BuildRenderItems()
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
     mAllRitems.push_back(std::move(boxRitem));
 
-    // All the render items are opaque.
-    for (auto& e : mAllRitems)
-        mOpaqueRitems.push_back(e);
+    // Для модели из LoadObjModel
+    for (const auto& drawArg : mModelRenderItems)
+    {
+        auto ri = drawArg.second;
+        Material* mat = ri->Mat;
+        if (mat->HasDisplacementMap)
+            mAdvancedRitems.push_back(ri);
+        else if (mat->HasNormalMap)
+            mNormalRitems.push_back(ri);
+        else
+            mBasicRitems.push_back(ri);
+        mOpaqueRitems.push_back(ri);
+    }
+    
     std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
     std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl;
 }
@@ -837,7 +910,7 @@ void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
-
+    
     auto objectCB = mCurrFrameResource->ObjectCB->Resource();
     auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
@@ -850,15 +923,23 @@ void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
         cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
         cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-        tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
-
+        CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseTex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        CD3DX12_GPU_DESCRIPTOR_HANDLE normalTex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        CD3DX12_GPU_DESCRIPTOR_HANDLE displacementTex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        diffuseTex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+        normalTex.Offset(ri->Mat->NormalSrvHeapIndex, mCbvSrvDescriptorSize);
+        displacementTex.Offset(ri->Mat->DisplacementSrvHeapIndex, mCbvSrvDescriptorSize);
+        
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
         D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
-        cmdList->SetGraphicsRootDescriptorTable(0, tex);
-        cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
-        cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+        cmdList->SetGraphicsRootDescriptorTable(0, diffuseTex);
+        if (ri->Mat->HasNormalMap)
+            cmdList->SetGraphicsRootDescriptorTable(1, normalTex);
+        if (ri->Mat->HasDisplacementMap)
+            cmdList->SetGraphicsRootDescriptorTable(2, displacementTex);
+        cmdList->SetGraphicsRootConstantBufferView(3, objCBAddress);
+        cmdList->SetGraphicsRootConstantBufferView(5, matCBAddress);
 
         cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }

@@ -4,6 +4,14 @@
 // Default shader, currently supports lighting.
 //***************************************************************************************
 
+#ifndef USE_NORMAL_MAP
+    #define USE_NORMAL_MAP 0
+#endif
+
+#ifndef USE_DISPLACEMENT_MAP
+    #define USE_DISPLACEMENT_MAP 0
+#endif
+
 // Defaults for number of lights.
 #ifndef NUM_DIR_LIGHTS
     #define NUM_DIR_LIGHTS 3
@@ -21,7 +29,19 @@
 #include "LightingUtil.hlsl"
 
 Texture2D    gDiffuseMap : register(t0);
-SamplerState gsamLinear  : register(s0);
+#if USE_NORMAL_MAP
+    Texture2D gNormalMap : register(t1);
+#endif
+#if USE_DISPLACEMENT_MAP
+    Texture2D gDisplacementMap : register(t2);
+#endif
+
+SamplerState gsamPointWrap        : register(s0);
+SamplerState gsamPointClamp       : register(s1);
+SamplerState gsamLinearWrap       : register(s2);
+SamplerState gsamLinearClamp      : register(s3);
+SamplerState gsamAnisotropicWrap  : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
 
 
 // Constant data that varies per frame.
@@ -88,6 +108,11 @@ VertexOut VS(VertexIn vin)
     // Transform to world space.
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
+    
+#if USE_DISPLACEMENT_MAP
+    float displacement = gDisplacementMap.SampleLevel(gsamPointWrap, vin.TexC, 0).r; // Пример выборки
+    posW.xyz += vin.NormalL * displacement * 0.1f; // Простое смещение
+#endif
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
     vout.NormalW = mul(vin.NormalL, (float3x3)gWorld);
@@ -104,7 +129,7 @@ VertexOut VS(VertexIn vin)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamLinear, pin.TexC) * gDiffuseAlbedo;
+    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamPointWrap, pin.TexC) * gDiffuseAlbedo;
 
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
@@ -128,5 +153,3 @@ float4 PS(VertexOut pin) : SV_Target
 
     return litColor;
 }
-
-
