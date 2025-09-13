@@ -321,8 +321,10 @@ void NeneApp::PopulateCommandList()
     }
     DrawRenderItems(m_commandList.Get(), mAdvancedRitems);
 
+// === UI ===
 #pragma region ImGui
-    // === Рендер UI ===
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr); // Disable depth-stencil for ImGui
+
     ID3D12DescriptorHeap* ImGui_descriptorHeaps[] = { m_imguiSrvHeap.Get() };
     m_commandList->SetDescriptorHeaps(_countof(ImGui_descriptorHeaps), ImGui_descriptorHeaps);
 

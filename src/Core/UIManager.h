@@ -17,7 +17,6 @@ public:
 	void InitImGui(ImGui_ImplDX12_InitInfo* init_info);
 	void BeginFrame();
 	void Render(ID3D12GraphicsCommandList* cmdList);
-	void RenderImGui(ID3D12GraphicsCommandList* command_list);
 
 private:
 	HWND g_hWnd = 0;
