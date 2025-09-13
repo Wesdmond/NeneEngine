@@ -1,9 +1,3 @@
-//***************************************************************************************
-// Default.hlsl by Frank Luna (C) 2015 All Rights Reserved.
-//
-// Default shader, currently supports lighting.
-//***************************************************************************************
-
 #ifndef USE_NORMAL_MAP
     #define USE_NORMAL_MAP 0
 #endif
@@ -32,9 +26,7 @@ Texture2D    gDiffuseMap : register(t0);
 #if USE_NORMAL_MAP
     Texture2D gNormalMap : register(t1);
 #endif
-#if USE_DISPLACEMENT_MAP
-    Texture2D gDisplacementMap : register(t2);
-#endif
+
 
 SamplerState gsamPointWrap        : register(s0);
 SamplerState gsamPointClamp       : register(s1);
@@ -109,11 +101,6 @@ VertexOut VS(VertexIn vin)
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
     
-#if USE_DISPLACEMENT_MAP
-    float displacement = gDisplacementMap.SampleLevel(gsamPointWrap, vin.TexC, 0).r; // Пример выборки
-    posW.xyz += vin.NormalL * displacement * 0.1f; // Простое смещение
-#endif
-
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
     vout.NormalW = mul(vin.NormalL, (float3x3)gWorld);
 

@@ -314,12 +314,13 @@ void NeneApp::PopulateCommandList()
 
     // Objects with displacement map rendering
     if (!mIsWireframe) {
-        m_commandList->SetPipelineState(mPSOs["displacement"].Get());
+        m_commandList->SetPipelineState(mPSOs["tesselation"].Get());
     }
     else {
-        m_commandList->SetPipelineState(mPSOs["displacement_wireframe"].Get());
+        m_commandList->SetPipelineState(mPSOs["tesselation_wireframe"].Get());
     }
-    DrawRenderItems(m_commandList.Get(), mAdvancedRitems);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    DrawRenderItems(m_commandList.Get(), m_tessMesh);
 
 // === UI ===
 #pragma region ImGui
@@ -711,22 +712,15 @@ void NeneApp::BuildShadersAndInputLayout()
     // Shader with normalMap
     D3D_SHADER_MACRO normalMacros[] = {
         { "USE_NORMAL_MAP", "1" },
-        { "USE_DISPLACEMENT_MAP", "0" },
         { nullptr, nullptr }
     };
     mShaders["normalVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "VS", "vs_5_1");
     mShaders["normalPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "PS", "ps_5_1");
 
-    // Shader with normalMap and displacementMap
-    D3D_SHADER_MACRO displacementMacros[] = {
-        { "USE_NORMAL_MAP", "1" },
-        { "USE_DISPLACEMENT_MAP", "1" },
-        { nullptr, nullptr }
-    };
-    mShaders["displacementVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "VS", "vs_5_1");
-    mShaders["displacementPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "PS", "ps_5_1");
-    //mShaders["standardHS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "HSMain", "hs_5_1");
-    //mShaders["standardDS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "DSMain", "ds_5_1");
+    mShaders["DefaultTessVS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "VSMain", "vs_5_1");
+    mShaders["DefaultTessHS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "HSMain", "hs_5_1");
+    mShaders["DefaultTessDS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "DSMain", "ds_5_1");
+    mShaders["DefaultTessPS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "PSMain", "ps_5_1");
 
     mInputLayout =
     {
@@ -886,14 +880,17 @@ void NeneApp::BuildPSOs()
     //
     // PSO for objects with displacement and normal  map.
     //
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC displacementPsoDesc = normalPsoDesc;
-    displacementPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["displacementVS"]->GetBufferPointer()), mShaders["displacementVS"]->GetBufferSize() };
-    displacementPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["displacementPS"]->GetBufferPointer()), mShaders["displacementPS"]->GetBufferSize() };
-    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&displacementPsoDesc, IID_PPV_ARGS(&mPSOs["displacement"])));
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC tessDesc = normalPsoDesc;
+    tessDesc.VS = { reinterpret_cast<BYTE*>(mShaders["DefaultTessVS"]->GetBufferPointer()), mShaders["DefaultTessVS"]->GetBufferSize() };
+    tessDesc.HS = { reinterpret_cast<BYTE*>(mShaders["DefaultTessHS"]->GetBufferPointer()), mShaders["DefaultTessHS"]->GetBufferSize() };
+    tessDesc.DS = { reinterpret_cast<BYTE*>(mShaders["DefaultTessDS"]->GetBufferPointer()), mShaders["DefaultTessDS"]->GetBufferSize() };
+    tessDesc.PS = { reinterpret_cast<BYTE*>(mShaders["DefaultTessPS"]->GetBufferPointer()), mShaders["DefaultTessPS"]->GetBufferSize() };
+    tessDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&tessDesc, IID_PPV_ARGS(&mPSOs["tesselation"])));
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC displacementWireframePsoDesc = displacementPsoDesc;
-    displacementWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&displacementWireframePsoDesc, IID_PPV_ARGS(&mPSOs["displacement_wireframe"])));
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC tessWireframePsoDesc = tessDesc;
+    tessWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&tessWireframePsoDesc, IID_PPV_ARGS(&mPSOs["tesselation_wireframe"])));
    
 }
 
@@ -1015,7 +1012,7 @@ void NeneApp::BuildRenderItems()
     sphereRitem->StartIndexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].StartIndexLocation;
     sphereRitem->BaseVertexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].BaseVertexLocation;
     mAllRitems.push_back(std::move(sphereRitem));
-    mAdvancedRitems.push_back(mAllRitems.back());
+    m_tessMesh.push_back(mAllRitems.back());
 
     // Filtering models from LoadObjModel
     for (const auto& drawArg : mModelRenderItems)
@@ -1023,7 +1020,7 @@ void NeneApp::BuildRenderItems()
         auto ri = drawArg.second;
         Material* mat = ri->Mat;
         if (mat->HasDisplacementMap)
-            mAdvancedRitems.push_back(ri);
+            m_tessMesh.push_back(ri);
         else if (mat->HasNormalMap)
             mNormalRitems.push_back(ri);
         else
