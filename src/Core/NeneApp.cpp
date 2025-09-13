@@ -33,15 +33,25 @@ bool NeneApp::Initialize()
     BuildShadersAndInputLayout();
     LoadTextures();
     BuildMaterials();
-    BuildGeometry();
-    LoadObjModel("assets/sponza.obj", Matrix::CreateScale(0.02f));
+    BuildBoxGeometry();
+    BuildDisplacementTestGeometry();
+    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
 
     InitCamera();
 
-    m_uiManager.InitImGui(m_device.Get(), SwapChainBufferCount, mSrvDescriptorHeap.Get());
+    ImGui_ImplDX12_InitInfo init_info = {};
+    init_info.Device = m_device.Get();
+    init_info.CommandQueue = m_commandQueue.Get();
+    init_info.NumFramesInFlight = gNumFrameResources;
+    init_info.RTVFormat = m_backBufferFormat;
+    init_info.DSVFormat = m_depthStencilFormat;
+    init_info.SrvDescriptorHeap = m_imguiSrvHeap.Get();
+    init_info.LegacySingleSrvCpuDescriptor = m_imguiSrvHeap->GetCPUDescriptorHandleForHeapStart();
+    init_info.LegacySingleSrvGpuDescriptor = m_imguiSrvHeap->GetGPUDescriptorHandleForHeapStart();
+    m_uiManager.InitImGui(&init_info);
 
     // Execute the initialization commands.
     ThrowIfFailed(m_commandList->Close());
@@ -236,7 +246,7 @@ void NeneApp::Update(const GameTimer& gt)
 void NeneApp::Draw(const GameTimer& gt)
 {
     PopulateCommandList();
-    
+
     // Add the command list to the queue for execution.
     ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
@@ -275,7 +285,7 @@ void NeneApp::PopulateCommandList()
         D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     // Clear the back buffer and depth buffer.
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::DarkGray, 0, nullptr);
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Black, 0, nullptr);
     m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
     // Specify the buffers we are going to render to.
@@ -289,17 +299,42 @@ void NeneApp::PopulateCommandList()
     auto passCB = mCurrFrameResource->PassCB->Resource();
     m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
     
-    // Рендер базовых материалов
-    m_commandList->SetPipelineState(mPSOs["opaque"].Get());
+    // Basic objects rendering
+    if (!mIsWireframe) {
+        m_commandList->SetPipelineState(mPSOs["opaque"].Get());
+    }
+    else {
+        m_commandList->SetPipelineState(mPSOs["opaque_wireframe"].Get());
+    }
     DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
 
-    // Рендер материалов с нормальной картой
+    // Objects with normal map rendering
     m_commandList->SetPipelineState(mPSOs["normal"].Get());
     DrawRenderItems(m_commandList.Get(), mNormalRitems);
 
-    // Рендер материалов с displacement
-    m_commandList->SetPipelineState(mPSOs["displacement"].Get());
+    // Objects with displacement map rendering
+    if (!mIsWireframe) {
+        m_commandList->SetPipelineState(mPSOs["displacement"].Get());
+    }
+    else {
+        m_commandList->SetPipelineState(mPSOs["displacement_wireframe"].Get());
+    }
     DrawRenderItems(m_commandList.Get(), mAdvancedRitems);
+
+#pragma region ImGui
+    // === Рендер UI ===
+    ID3D12DescriptorHeap* ImGui_descriptorHeaps[] = { m_imguiSrvHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(ImGui_descriptorHeaps), ImGui_descriptorHeaps);
+
+    m_uiManager.BeginFrame();
+
+    ImGui::Begin("Render Settings");
+    ImGui::Checkbox("Wireframe Mode", &mIsWireframe);
+    ImGui::End();
+
+    m_uiManager.Render(m_commandList.Get());
+#pragma endregion
+
 
     // Indicate a state transition on the resource usage.
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -309,8 +344,11 @@ void NeneApp::PopulateCommandList()
     ThrowIfFailed(m_commandList->Close());
 }
 
+// Function to bind to some delegates (in InputDevice, for example)
 void NeneApp::SetDelegates()
-{}
+{
+
+}
 
 void NeneApp::InitCamera()
 {
@@ -331,12 +369,20 @@ void NeneApp::BuildDescriptorHeaps()
     ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
 
     mCbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // Create the SRV heap for ImGui (single descriptor for font texture)
+    D3D12_DESCRIPTOR_HEAP_DESC imguiHeapDesc = {};
+    imguiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    imguiHeapDesc.NumDescriptors = 10;
+    imguiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    imguiHeapDesc.NodeMask = 0;
+    ThrowIfFailed(m_device->CreateDescriptorHeap(&imguiHeapDesc, IID_PPV_ARGS(&m_imguiSrvHeap)));
 }
 
+// Function to preload some textures, if needed
 void NeneApp::LoadTextures()
 {
-    LoadTexture("assets/textures/texture_error.dds");
-    LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
+
 }
 
 bool NeneApp::LoadTexture(const std::string& filename)
@@ -409,9 +455,6 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
     UINT indexOffset = 0;
     UINT vertexOffset = 0;
 
-    // temp sctructure for material index
-    std::vector<std::pair<std::string, UINT>> meshMaterialIndices;
-
     std::uint32_t vertexCount = 0;
     std::uint32_t indexCount = 0;
     {
@@ -462,7 +505,6 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         submesh.MaterialIndex = mesh->mMaterialIndex;
 
         drawArgs[meshName.C_Str()] = submesh;
-        meshMaterialIndices.push_back({ meshName.C_Str(), mesh->mMaterialIndex });
 
         vertexOffset += mesh->mNumVertices;
     }
@@ -545,7 +587,7 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         } else
         {
             material->NormalSrvHeapIndex = 0;
-            std::cout << "No normal map for material " << material->Name << std::endl;
+            // TODO: Logging: std::cout << "No normal map for material " << material->Name << std::endl;
         }
 
         if (mat->GetTexture(aiTextureType_DISPLACEMENT, 0, &texPath) == AI_SUCCESS)
@@ -611,9 +653,6 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
     std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl << std::endl;;
     
     mGeometries[geo->Name] = std::move(geo);
-
-    // resize ObjectCB/MaterialCB
-    BuildFrameResources();
 }
 
 
@@ -664,8 +703,8 @@ void NeneApp::BuildRootSignature()
 void NeneApp::BuildShadersAndInputLayout()
 {
     // Basic shader (no normalMap and displacementMap)
-    mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
-    mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
+    mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_1");
 
     // Shader with normalMap
     D3D_SHADER_MACRO normalMacros[] = {
@@ -673,8 +712,8 @@ void NeneApp::BuildShadersAndInputLayout()
         { "USE_DISPLACEMENT_MAP", "0" },
         { nullptr, nullptr }
     };
-    mShaders["normalVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "VS", "vs_5_0");
-    mShaders["normalPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "PS", "ps_5_0");
+    mShaders["normalVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "VS", "vs_5_1");
+    mShaders["normalPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "PS", "ps_5_1");
 
     // Shader with normalMap and displacementMap
     D3D_SHADER_MACRO displacementMacros[] = {
@@ -682,8 +721,10 @@ void NeneApp::BuildShadersAndInputLayout()
         { "USE_DISPLACEMENT_MAP", "1" },
         { nullptr, nullptr }
     };
-    mShaders["displacementVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "VS", "vs_5_0");
-    mShaders["displacementPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "PS", "ps_5_0");
+    mShaders["displacementVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "VS", "vs_5_1");
+    mShaders["displacementPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "PS", "ps_5_1");
+    //mShaders["standardHS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "HSMain", "hs_5_1");
+    //mShaders["standardDS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", displacementMacros, "DSMain", "ds_5_1");
 
     mInputLayout =
     {
@@ -694,7 +735,7 @@ void NeneApp::BuildShadersAndInputLayout()
     };
 }
 
-void NeneApp::BuildGeometry()
+void NeneApp::BuildBoxGeometry()
 {
     GeometryGenerator geoGen;
     GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
@@ -739,6 +780,56 @@ void NeneApp::BuildGeometry()
     geo->IndexBufferByteSize = ibByteSize;
 
     geo->DrawArgs["box"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildDisplacementTestGeometry()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.f, 12, 12);
+
+    SubmeshGeometry sphereSubmesh;
+    sphereSubmesh.IndexCount = (UINT)sphere.Indices32.size();
+    sphereSubmesh.StartIndexLocation = 0;
+    sphereSubmesh.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(sphere.Vertices.size());
+
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
+    {
+        vertices[i].Pos = sphere.Vertices[i].Position;
+        vertices[i].Normal = sphere.Vertices[i].Normal;
+        vertices[i].TexC = sphere.Vertices[i].TexC;
+        vertices[i].TangentU = sphere.Vertices[i].TangentU;
+    }
+
+    std::vector<std::uint16_t> indices = sphere.GetIndices16();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "tessSphereGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["tessSphere"] = sphereSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -797,6 +888,10 @@ void NeneApp::BuildPSOs()
     displacementPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["displacementVS"]->GetBufferPointer()), mShaders["displacementVS"]->GetBufferSize() };
     displacementPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["displacementPS"]->GetBufferPointer()), mShaders["displacementPS"]->GetBufferSize() };
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&displacementPsoDesc, IID_PPV_ARGS(&mPSOs["displacement"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC displacementWireframePsoDesc = displacementPsoDesc;
+    displacementWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&displacementWireframePsoDesc, IID_PPV_ARGS(&mPSOs["displacement_wireframe"])));
    
 }
 
@@ -857,23 +952,41 @@ void NeneApp::BuildMaterials()
 {
     auto mat = std::make_unique<Material>();
     mat->Name = "error";
-    mat->MatCBIndex = 0;
-    mat->DiffuseSrvHeapIndex = 0;
+    mat->MatCBIndex = (int)mMaterials.size();
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size();
+    LoadTexture("assets/textures/texture_error.dds");
     mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     mat->Roughness = 0.2f;
-
     mMaterials["error"] = std::move(mat);
+
 
     mat = std::make_unique<Material>();
     mat->Name = "woodCrate";
-    mat->MatCBIndex = 1;
-    mat->DiffuseSrvHeapIndex = 1;
+    mat->MatCBIndex = (int)mMaterials.size();
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size();;
+    LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
     mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     mat->Roughness = 0.2f;
-
     mMaterials["woodCrate"] = std::move(mat);
+
+
+    mat = std::make_unique<Material>();
+    mat->Name = "rock";
+    mat->MatCBIndex = (int)mMaterials.size();
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size();
+    LoadTexture("assets/textures/for_tesselation/rock.dds");
+    mat->NormalSrvHeapIndex = (UINT)mTextures.size();
+    mat->HasNormalMap = true;
+    LoadTexture("assets/textures/for_tesselation/rock_disp.dds");
+    mat->DisplacementSrvHeapIndex = (UINT)mTextures.size();
+    mat->HasDisplacementMap = true;
+    LoadTexture("assets/textures/for_tesselation/rock_nmap.dds");
+    mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    mat->Roughness = 0.2f;
+    mMaterials["rock"] = std::move(mat);
 }
 
 void NeneApp::BuildRenderItems()
@@ -881,14 +994,28 @@ void NeneApp::BuildRenderItems()
     auto boxRitem = std::make_shared<RenderItem>();
     boxRitem->ObjCBIndex = 0;
     boxRitem->Mat = mMaterials["woodCrate"].get();
+    boxRitem->World = Matrix::CreateTranslation(0.0f, 0.0f, 0.0f);
     boxRitem->Geo = mGeometries["boxGeo"].get();
     boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
     boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
     mAllRitems.push_back(std::move(boxRitem));
+    mOpaqueRitems.push_back(mAllRitems.back());
 
-    // Для модели из LoadObjModel
+    auto sphereRitem = std::make_shared<RenderItem>();
+    sphereRitem->ObjCBIndex = 1;
+    sphereRitem->Mat = mMaterials["rock"].get();
+    sphereRitem->World = Matrix::CreateTranslation(4.0f, 0.0f, 0.0f);
+    sphereRitem->Geo = mGeometries["tessSphereGeo"].get();
+    sphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sphereRitem->IndexCount = sphereRitem->Geo->DrawArgs["tessSphere"].IndexCount;
+    sphereRitem->StartIndexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].StartIndexLocation;
+    sphereRitem->BaseVertexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(sphereRitem));
+    mAdvancedRitems.push_back(mAllRitems.back());
+
+    // Filtering models from LoadObjModel
     for (const auto& drawArg : mModelRenderItems)
     {
         auto ri = drawArg.second;

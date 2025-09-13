@@ -1,6 +1,4 @@
 #include "UIManager.h"
-#include "backends/imgui_impl_dx12.h"
-#include "backends/imgui_impl_win32.h"
 
 UIManager::UIManager(HWND hWnd) : g_hWnd(hWnd)
 {
@@ -14,34 +12,52 @@ UIManager::~UIManager()
     ImGui::DestroyContext();
 }
 
-void UIManager::InitImGui(ID3D12Device* device, int backBufferCnt, ID3D12DescriptorHeap* srv_desc_heap)
+void UIManager::InitImGui(ImGui_ImplDX12_InitInfo* init_info)
 {
     // Инициализация ImGui контекста
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    // Настройка стиля (опционально)
+    ImGui::StyleColorsDark();
+
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Включить управление клавиатурой
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Включить docking
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // (Опционально) Включить мультивьюпорты
 
-    // Настройка стиля (опционально)
-    ImGui::StyleColorsDark();
+
+    // Инициализация бэкендов ImGui
+    ImGui_ImplWin32_Init(g_hWnd); // hWnd - ваше окно Win32
+    ImGui_ImplDX12_Init(init_info);
+
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
         ImGuiStyle& style = ImGui::GetStyle();
         style.WindowRounding = 0.0f; // Убрать скругление углов для платформенных окон
         style.Colors[ImGuiCol_WindowBg].w = 1.0f; // Полностью непрозрачный фон
     }
 
-    // Инициализация бэкендов ImGui
-    ImGui_ImplWin32_Init(g_hWnd); // hWnd - ваше окно Win32
-    ImGui_ImplDX12_Init(
-        device, // ID3D12Device*
-        backBufferCnt, // Количество буферов (обычно 2 или 3)
-        DXGI_FORMAT_R8G8B8A8_UNORM, // Формат рендер-таргета
-        srv_desc_heap, // ID3D12DescriptorHeap* для шейдерных ресурсов
-        srv_desc_heap->GetCPUDescriptorHandleForHeapStart(), // CPU handle для шрифтов
-        srv_desc_heap->GetGPUDescriptorHandleForHeapStart()  // GPU handle для шрифтов
-    );
+    // Create ImGui device objects (font texture, etc.)
+    ImGui_ImplDX12_CreateDeviceObjects();
+}
+
+void UIManager::BeginFrame()
+{
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+}
+
+void UIManager::Render(ID3D12GraphicsCommandList* cmdList)
+{
+    ImGui::Render();
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmdList);
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
 }
 
 void UIManager::RenderImGui(ID3D12GraphicsCommandList* command_list) {

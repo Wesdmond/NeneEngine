@@ -65,7 +65,8 @@ private:
     void BuildRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
-    void BuildGeometry();
+    void BuildBoxGeometry();
+    void BuildDisplacementTestGeometry();
     void BuildPSOs();
 	void BuildTextureSRVs();
     void BuildFrameResources();
@@ -98,6 +99,7 @@ private:
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
+    ComPtr<ID3D12DescriptorHeap> m_imguiSrvHeap = nullptr;
 
 	std::unordered_map<std::string, std::shared_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -127,7 +129,7 @@ private:
     UINT mPassCbvOffset = 0;
 
 #pragma endregion
-    bool mIsWireframe = false;
+    bool mIsWireframe = true;
     float m_cameraSpeed = 10;
     float m_mouseSensitivity = 0.005f;
 
