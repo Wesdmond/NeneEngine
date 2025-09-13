@@ -108,6 +108,27 @@ struct HS_CONSTANT_DATA_OUTPUT
 HS_CONSTANT_DATA_OUTPUT ConstantsHS(InputPatch<VS_OUTPUT_HS_INPUT, 3> p, uint PatchID : SV_PrimitiveID)
 {
     HS_CONSTANT_DATA_OUTPUT Out;
+    float3 vPos0 = p[0].vPosWS;
+    float3 vPos1 = p[1].vPosWS;
+    float3 vPos2 = p[2].vPosWS;
+    // find two triangle patch edges
+    float3 vEdge0 = vPos1 - vPos0;
+    float3 vEdge2 = vPos2 - vPos0;
+    // Create the normal and view vector
+    float3 vFaceNormal = normalize(cross(vEdge2, vEdge0));
+    float3 vView = normalize(vPos0 - gEyePosW);
+    // A negative dot product means facing away from view direction.
+    // Use a small epsilon to avoid popping, since displaced vertices 
+    // may still be visible with dot product = 0.
+    if (dot(vView, vFaceNormal) < -0.25)
+    {
+    // Cull the triangle by setting the tessellation factors to 0.
+        Out.Edges[0] = 0;
+        Out.Edges[1] = 0;
+        Out.Edges[2] = 0;
+        Out.Inside = 0;
+        return Out; // early exit
+    }
     Out.Edges[0] = g_TessellationFactor;
     Out.Edges[1] = g_TessellationFactor;
     Out.Edges[2] = g_TessellationFactor;
