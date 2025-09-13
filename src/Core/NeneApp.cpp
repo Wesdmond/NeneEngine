@@ -203,23 +203,122 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     currPassCB->CopyData(0, mMainPassCB);
 }
 
+void NeneApp::UpdateVisibleRenderItems()
+{
+    mVisibleRitems.clear();
+
+    // Восстановим viewProj матрицу, она у тебя в mMainPassCB.ViewProj (transposed)
+    //XMMATRIX viewProj = XMLoadFloat4x4(&mMainPassCB.ViewProj); // Если ты хранишь транспонированную - убедись, что порядок корректен
+    XMMATRIX viewProj = XMMatrixTranspose(XMLoadFloat4x4(&mMainPassCB.ViewProj));
+    // Create BoundingFrustum from matrix
+    DirectX::BoundingFrustum frustum;
+    DirectX::BoundingFrustum::CreateFromMatrix(frustum, viewProj);
+    BoundingFrustum::CreateFromMatrix(frustum, viewProj);
+
+    XMVECTOR eyePos = XMLoadFloat3(&mMainPassCB.EyePosW);
+
+    for (auto& ri : mAllRitems) // или перебрать нужный набор: mAllRitems / m_tessMesh / ...
+    {
+        // Получаем локальный bounds у submesh (предполагаем, что имя подмеша = один из drawArgs ключей).
+        // Здесь пример для единственного submesh; у тебя возможно хранится DrawArgs map -> надо взять правильный SubmeshGeometry.
+        const SubmeshGeometry& sub = ri->Geo->DrawArgs.begin()->second; // <- заменить реальным доступом к нужному Submesh
+        DirectX::BoundingBox localBox = sub.Bounds;
+
+        // Преобразуем bounding box в world space
+        XMMATRIX world = XMLoadFloat4x4(&ri->World);
+        localBox.Transform(localBox, world);
+
+        // Фруструм-тест
+        bool visible = true;
+        if (mUseFrustumCulling)
+        {
+            visible = frustum.Intersects(localBox);
+        }
+
+        if (!visible)
+            continue;
+
+        // LOD: расстояние от камеры до центра bounds
+        XMVECTOR center = XMLoadFloat3(&localBox.Center);
+        float dist = XMVectorGetX(XMVector3Length(XMVectorSubtract(center, eyePos)));
+
+        // Выбор LOD по distance threshold
+        if (dist > mLODDistanceThreshold)
+        {
+            //// дальний LOD
+            //if (ri->GeoLOD1)
+            //{
+            //    ri->SelectedGeo = ri->GeoLOD1;
+            //    // рекомендуется хранить отдельный Submesh в GeoLOD1 с тем же именем, либо прямые IndexCountLOD поля
+            //    ri->SelectedIndexCount = ri->SelectedGeo->DrawArgs.begin()->second.IndexCount;
+            //    ri->SelectedStartIndexLocation = ri->SelectedGeo->DrawArgs.begin()->second.StartIndexLocation;
+            //    ri->SelectedBaseVertexLocation = ri->SelectedGeo->DrawArgs.begin()->second.BaseVertexLocation;
+            //}
+            //else
+            //{
+            //    // нет LOD1 -> используем hi
+            //    ri->SelectedGeo = ri->Geo;
+            //    ri->SelectedIndexCount = ri->IndexCount;
+            //    ri->SelectedStartIndexLocation = ri->StartIndexLocation;
+            //    ri->SelectedBaseVertexLocation = ri->BaseVertexLocation;
+            //}
+        }
+        else
+        {
+            //// ближний LOD
+            //ri->SelectedGeo = ri->Geo;
+            //ri->SelectedIndexCount = ri->IndexCount;
+            //ri->SelectedStartIndexLocation = ri->StartIndexLocation;
+            //ri->SelectedBaseVertexLocation = ri->BaseVertexLocation;
+        }
+
+        mVisibleRitems.push_back(ri);
+    }
+    // Filtering models from LoadObjModel
+    for (auto& ri : mVisibleRitems)
+    {
+        Material* mat = ri->Mat;
+        if (mat->HasDisplacementMap)
+            m_tessMesh.push_back(ri);
+        else if (mat->HasNormalMap)
+            mNormalRitems.push_back(ri);
+        else
+            mBasicRitems.push_back(ri);
+        mOpaqueRitems.push_back(ri);
+    }
+}
 DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
 {
     if (verts.empty()) return DirectX::BoundingBox();
+
     DirectX::XMFLOAT3 _min = { FLT_MAX, FLT_MAX, FLT_MAX };
     DirectX::XMFLOAT3 _max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
     for (const auto& v : verts)
     {
         _min.x = std::min(_min.x, v.Pos.x);
         _min.y = std::min(_min.y, v.Pos.y);
         _min.z = std::min(_min.z, v.Pos.z);
+
         _max.x = std::max(_max.x, v.Pos.x);
         _max.y = std::max(_max.y, v.Pos.y);
         _max.z = std::max(_max.z, v.Pos.z);
     }
-    DirectX::XMFLOAT3 center = { (_min.x + _max.x) / 2, (_min.y + _max.y) / 2, (_min.z + _max.z) / 2 };
-    float extent = std::max({ _max.x - _min.x, _max.y - _min.y, _max.z - _min.z }) / 2;
-    return DirectX::BoundingBox(center, { extent, extent, extent });
+
+    DirectX::XMFLOAT3 center = {
+        (_min.x + _max.x) * 0.5f,
+        (_min.y + _max.y) * 0.5f,
+        (_min.z + _max.z) * 0.5f
+    };
+
+    // extents по каждой оси отдельно
+    DirectX::XMFLOAT3 extents = {
+        (_max.x - _min.x) * 0.5f,
+        (_max.y - _min.y) * 0.5f,
+        (_max.z - _min.z) * 0.5f
+    };
+
+    return DirectX::BoundingBox(center, extents);
 }
 
 void NeneApp::Update(const GameTimer& gt)
@@ -303,6 +402,8 @@ void NeneApp::PopulateCommandList()
     auto passCB = mCurrFrameResource->PassCB->Resource();
     m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
     
+    UpdateVisibleRenderItems();
+
     // Basic objects rendering
     if (!mIsWireframe) {
         m_commandList->SetPipelineState(mPSOs["opaque"].Get());
@@ -338,8 +439,27 @@ void NeneApp::PopulateCommandList()
     ImGui::Begin("Render Settings");
     ImGui::Checkbox("Wireframe Mode", &mIsWireframe);
 
-    ImGui::Text("Rock options");
+    ImGui::Text("Frustum Culling Settings");
+    ImGui::Checkbox("Frustum Culling", &mUseFrustumCulling);
+    ImGui::SliderFloat("LOD Distance Threshold", &mLODDistanceThreshold, 5.0f, 200.0f);
+    ImGui::Text("Visible objects: %d", (int)mVisibleRitems.size());
 
+    std::vector<std::string> geoNames;
+    for (auto& kv : mGeometries)
+        geoNames.push_back(kv.first);
+
+    // Конвертируем имена в массив const char* для ImGui
+    std::vector<const char*> items;
+    for (auto& name : geoNames)
+        items.push_back(name.c_str());
+
+    // Создаем Combo
+    if (ImGui::Combo("Select Geometry", &mCurrentGeoIndex, items.data(), (int)items.size()))
+    {
+        mCurrentGeoName = geoNames[mCurrentGeoIndex];
+    }
+
+    ImGui::Text("Rock options");
     Material* tessMat = mMaterials["rock"].get();
     if (tessMat)
     {
@@ -350,6 +470,7 @@ void NeneApp::PopulateCommandList()
             tessMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
         }
     }
+    ImGui::Text("Mountain options");
     Material* mountMat = mMaterials["mountain"].get();
     if (mountMat)
     {
@@ -360,7 +481,6 @@ void NeneApp::PopulateCommandList()
             mountMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
         }
     }
-    ImGui::Text("Mountain options");
     ImGui::End();
 
     m_uiManager.Render(m_commandList.Get());
@@ -466,7 +586,7 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         aiProcess_JoinIdenticalVertices  |
         aiProcess_FlipUVs                |
         aiProcess_CalcTangentSpace       |
-        aiProcess_GenNormals);
+        aiProcess_GenSmoothNormals);
 
     if (!pScene || pScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !pScene->mRootNode)
     {
@@ -532,7 +652,8 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         submesh.IndexCount = mesh->mNumFaces * 3;
         submesh.StartIndexLocation = startIndex;
         submesh.BaseVertexLocation = vertexOffset;
-        submesh.Bounds = ComputeBounds(vertices);  // TODO: Check bounding box correction
+        std::vector<Vertex> subVertices(vertices.begin() + vertexOffset, vertices.begin() + vertexOffset + mesh->mNumVertices);
+        submesh.Bounds = ComputeBounds(subVertices);  // TODO: Check bounding box correction
         submesh.MaterialIndex = mesh->mMaterialIndex;
 
         drawArgs[meshName.C_Str()] = submesh;
@@ -819,6 +940,7 @@ void NeneApp::BuildDisplacementTestGeometry()
     sphereSubmesh.BaseVertexLocation = 0;
 
     std::vector<Vertex> vertices(sphere.Vertices.size());
+    sphereSubmesh.Bounds = ComputeBounds(vertices);
 
     for (size_t i = 0; i < sphere.Vertices.size(); ++i)
     {
@@ -869,6 +991,7 @@ void NeneApp::BuildMountainGeometry()
     moutain.BaseVertexLocation = 0;
 
     std::vector<Vertex> vertices(plane.Vertices.size());
+    moutain.Bounds = ComputeBounds(vertices);
 
     for (size_t i = 0; i < plane.Vertices.size(); ++i)
     {
@@ -1117,20 +1240,6 @@ void NeneApp::BuildRenderItems()
     mountainRitem->BaseVertexLocation = mountainRitem->Geo->DrawArgs["mountain"].BaseVertexLocation;
     mAllRitems.push_back(std::move(mountainRitem));
     m_tessMesh.push_back(mAllRitems.back());
-
-    // Filtering models from LoadObjModel
-    for (const auto& drawArg : mModelRenderItems)
-    {
-        auto ri = drawArg.second;
-        Material* mat = ri->Mat;
-        if (mat->HasDisplacementMap)
-            m_tessMesh.push_back(ri);
-        else if (mat->HasNormalMap)
-            mNormalRitems.push_back(ri);
-        else
-            mBasicRitems.push_back(ri);
-        mOpaqueRitems.push_back(ri);
-    }
     
     std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
     std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl;

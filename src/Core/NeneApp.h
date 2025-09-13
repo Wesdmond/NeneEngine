@@ -84,6 +84,7 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
 
+    void UpdateVisibleRenderItems();
     DirectX::BoundingBox ComputeBounds(const std::vector<Vertex>& verts);
 private:
     Camera m_camera;
@@ -130,7 +131,16 @@ private:
     UINT mPassCbvOffset = 0;
 
 #pragma endregion
-    bool mIsWireframe = true;
+    // Frustrum culling
+    std::vector<std::shared_ptr<RenderItem>> mVisibleRitems;
+    float mLODDistanceThreshold = 30.0f;
+    bool mUseFrustumCulling = true;
+
+    std::string mCurrentGeoName;
+    int mCurrentGeoIndex = 0;   
+
+
+    bool mIsWireframe = false;
     float m_cameraSpeed = 10;
     float m_mouseSensitivity = 0.005f;
 
