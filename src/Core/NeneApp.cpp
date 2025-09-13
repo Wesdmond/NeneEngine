@@ -861,7 +861,7 @@ void NeneApp::BuildDisplacementTestGeometry()
 void NeneApp::BuildMountainGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData plane = geoGen.CreateGrid(100.f, 200.f, 32, 32);
+    GeometryGenerator::MeshData plane = geoGen.CreateGrid(100.f, 200.f, 16, 16);
 
     SubmeshGeometry moutain;
     moutain.IndexCount = (UINT)plane.Indices32.size();
@@ -1085,7 +1085,7 @@ void NeneApp::BuildRenderItems()
     auto boxRitem = std::make_shared<RenderItem>();
     boxRitem->ObjCBIndex = 0;
     boxRitem->Mat = mMaterials["woodCrate"].get();
-    boxRitem->World = Matrix::CreateTranslation(0.0f, 0.0f, 0.0f);
+    boxRitem->World = Matrix::CreateTranslation(0.0f, 4.0f, 0.0f);
     boxRitem->Geo = mGeometries["boxGeo"].get();
     boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
@@ -1097,7 +1097,7 @@ void NeneApp::BuildRenderItems()
     auto sphereRitem = std::make_shared<RenderItem>();
     sphereRitem->ObjCBIndex = 1;
     sphereRitem->Mat = mMaterials["rock"].get();
-    sphereRitem->World = Matrix::CreateTranslation(4.0f, 0.0f, 0.0f);
+    sphereRitem->World = Matrix::CreateTranslation(4.0f, 4.0f, 0.0f);
     sphereRitem->Geo = mGeometries["tessSphereGeo"].get();
     sphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     sphereRitem->IndexCount = sphereRitem->Geo->DrawArgs["tessSphere"].IndexCount;
@@ -1109,7 +1109,7 @@ void NeneApp::BuildRenderItems()
     auto mountainRitem = std::make_shared<RenderItem>();
     mountainRitem->ObjCBIndex = 2;
     mountainRitem->Mat = mMaterials["mountain"].get();
-    mountainRitem->World = Matrix::CreateTranslation(-4.0f, 0.0f, 0.0f);
+    mountainRitem->World = Matrix::CreateTranslation(0.0f, 0.0f, 0.0f);
     mountainRitem->Geo = mGeometries["mountainGeo"].get();
     mountainRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     mountainRitem->IndexCount = mountainRitem->Geo->DrawArgs["mountain"].IndexCount;
