@@ -35,7 +35,8 @@ bool NeneApp::Initialize()
     BuildMaterials();
     BuildBoxGeometry();
     BuildDisplacementTestGeometry();
-    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
+    BuildMountainGeometry();
+    //LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -155,6 +156,9 @@ void NeneApp::UpdateMaterialCBs(const GameTimer& gt)
             matConstants.FresnelR0 = mat->FresnelR0;
             matConstants.Roughness = mat->Roughness;
             XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
+            matConstants.TessellationFactor = mat->TessellationFactor;
+            matConstants.DisplacementScale = mat->DisplacementScale;
+            matConstants.DisplacementBias = mat->DisplacementBias;
 
             currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
 
@@ -333,6 +337,30 @@ void NeneApp::PopulateCommandList()
 
     ImGui::Begin("Render Settings");
     ImGui::Checkbox("Wireframe Mode", &mIsWireframe);
+
+    ImGui::Text("Rock options");
+
+    Material* tessMat = mMaterials["rock"].get();
+    if (tessMat)
+    {
+        if(ImGui::SliderFloat("Tessellation Factor (Rock)", &tessMat->TessellationFactor, 1.0f, 64.0f) ||
+            ImGui::SliderFloat("Displacement Scale (Rock)", &tessMat->DisplacementScale, 0.0f, 1.0f) ||
+            ImGui::SliderFloat("Displacement Bias (Rock)", &tessMat->DisplacementBias, -1.0f, 1.0f))
+        {
+            tessMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
+        }
+    }
+    Material* mountMat = mMaterials["mountain"].get();
+    if (mountMat)
+    {
+        if (ImGui::SliderFloat("Tessellation Factor (Mountain)", &mountMat->TessellationFactor, 1.0f, 64.0f) ||
+            ImGui::SliderFloat("Displacement Scale (Mountain)", &mountMat->DisplacementScale, 0.0f, 1.0f) ||
+            ImGui::SliderFloat("Displacement Bias (Mountain)", &mountMat->DisplacementBias, -1.0f, 1.0f))
+        {
+            mountMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
+        }
+    }
+    ImGui::Text("Mountain options");
     ImGui::End();
 
     m_uiManager.Render(m_commandList.Get());
@@ -830,6 +858,56 @@ void NeneApp::BuildDisplacementTestGeometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void NeneApp::BuildMountainGeometry()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData plane = geoGen.CreateGrid(100.f, 200.f, 32, 32);
+
+    SubmeshGeometry moutain;
+    moutain.IndexCount = (UINT)plane.Indices32.size();
+    moutain.StartIndexLocation = 0;
+    moutain.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(plane.Vertices.size());
+
+    for (size_t i = 0; i < plane.Vertices.size(); ++i)
+    {
+        vertices[i].Pos = plane.Vertices[i].Position;
+        vertices[i].Normal = plane.Vertices[i].Normal;
+        vertices[i].TexC = plane.Vertices[i].TexC;
+        vertices[i].TangentU = plane.Vertices[i].TangentU;
+    }
+
+    std::vector<std::uint32_t> indices = plane.Indices32;
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "mountainGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["mountain"] = moutain;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 void NeneApp::BuildPSOs()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
@@ -947,6 +1025,7 @@ void NeneApp::BuildFrameResources()
     }
 }
 
+// Prebuilded materials
 void NeneApp::BuildMaterials()
 {
     auto mat = std::make_unique<Material>();
@@ -978,14 +1057,27 @@ void NeneApp::BuildMaterials()
     LoadTexture("assets/textures/for_tesselation/rock.dds");
     mat->NormalSrvHeapIndex = (UINT)mTextures.size();
     mat->HasNormalMap = true;
-    LoadTexture("assets/textures/for_tesselation/rock_disp.dds");
+    LoadTexture("assets/textures/for_tesselation/rock_nmap.dds");
     mat->DisplacementSrvHeapIndex = (UINT)mTextures.size();
     mat->HasDisplacementMap = true;
-    LoadTexture("assets/textures/for_tesselation/rock_nmap.dds");
+    LoadTexture("assets/textures/for_tesselation/rock_disp.dds");
     mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
     mat->Roughness = 0.2f;
     mMaterials["rock"] = std::move(mat);
+
+    mat = std::make_unique<Material>();
+    mat->Name = "rock";
+    mat->MatCBIndex = (int)mMaterials.size();
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size();
+    LoadTexture("assets/textures/for_tesselation/mountain_diff.dds");
+    mat->NormalSrvHeapIndex = (UINT)mTextures.size();
+    mat->HasNormalMap = true;
+    LoadTexture("assets/textures/for_tesselation/mountain_nmap.dds");
+    mat->DisplacementSrvHeapIndex = (UINT)mTextures.size();
+    mat->HasDisplacementMap = true;
+    LoadTexture("assets/textures/for_tesselation/mountain_disp.dds");
+    mMaterials["mountain"] = std::move(mat);
 }
 
 void NeneApp::BuildRenderItems()
@@ -1012,6 +1104,18 @@ void NeneApp::BuildRenderItems()
     sphereRitem->StartIndexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].StartIndexLocation;
     sphereRitem->BaseVertexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].BaseVertexLocation;
     mAllRitems.push_back(std::move(sphereRitem));
+    m_tessMesh.push_back(mAllRitems.back());
+
+    auto mountainRitem = std::make_shared<RenderItem>();
+    mountainRitem->ObjCBIndex = 2;
+    mountainRitem->Mat = mMaterials["mountain"].get();
+    mountainRitem->World = Matrix::CreateTranslation(-4.0f, 0.0f, 0.0f);
+    mountainRitem->Geo = mGeometries["mountainGeo"].get();
+    mountainRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    mountainRitem->IndexCount = mountainRitem->Geo->DrawArgs["mountain"].IndexCount;
+    mountainRitem->StartIndexLocation = mountainRitem->Geo->DrawArgs["mountain"].StartIndexLocation;
+    mountainRitem->BaseVertexLocation = mountainRitem->Geo->DrawArgs["mountain"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(mountainRitem));
     m_tessMesh.push_back(mAllRitems.back());
 
     // Filtering models from LoadObjModel

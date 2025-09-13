@@ -400,3 +400,4 @@ FodyWeavers.xsd
 *.sln.iml
 Stuff
 libs/imgui/examples
+assets/textures/for_tesselation/mountain_*.dds

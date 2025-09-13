@@ -67,6 +67,7 @@ private:
     void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
     void BuildDisplacementTestGeometry();
+    void BuildMountainGeometry();
     void BuildPSOs();
 	void BuildTextureSRVs();
     void BuildFrameResources();

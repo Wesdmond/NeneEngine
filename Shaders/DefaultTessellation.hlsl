@@ -2,6 +2,7 @@
 #include "LightingUtil.hlsl"
 
 Texture2D gDiffuseMap : register(t0);
+Texture2D gNormalMap : register(t1);
 Texture2D gDisplacementMap : register(t2);
 
 SamplerState gsamPointWrap : register(s0);
@@ -51,102 +52,145 @@ cbuffer cbMaterial : register(b2)
     float3 gFresnelR0;
     float gRoughness;
     float4x4 gMatTransform;
+    float g_TessellationFactor; // for Hull Shader
+    float g_DisplacementScale; // scale displacement
+    float g_DisplacementBias; // displacement bias
 };
 
-struct HSControlPointInput
+// --- Vertex output for Hull Shader
+struct VS_OUTPUT_HS_INPUT
+{
+    float3 vPosWS : POSITION;
+    float3 vNormal : NORMAL;
+    float2 vTexCoord : TEXCOORD0;
+    float3 vLightTS : TEXCOORD1;
+};
+
+// --- Hull Shader output
+struct HS_CONTROL_POINT_OUTPUT
+{
+    float3 vWorldPos : POSITION;
+    float3 vNormal : NORMAL;
+    float2 vTexCoord : TEXCOORD0;
+    float3 vLightTS : TEXCOORD1;
+};
+
+struct VertexIn
 {
     float3 PosL : POSITION;
     float3 NormalL : NORMAL;
+    float3 TangentU : TANGENT;
     float2 TexC : TEXCOORD;
 };
 
-struct HSControlPointOutput
+// --- Vertex Shader
+VS_OUTPUT_HS_INPUT VSMain(VertexIn vin)
 {
-    float3 PosL : POSITION;
-    float3 NormalL : NORMAL;
-    float2 TexC : TEXCOORD;
-};
-
-HSControlPointInput VSMain(HSControlPointInput vin)
-{
-    HSControlPointOutput vout;
-    vout.PosL = vin.PosL;
-    vout.NormalL = vin.NormalL;
-    vout.TexC = vin.TexC;
+    VS_OUTPUT_HS_INPUT vout;
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vout.vPosWS = posW.xyz;
+    vout.vNormal = mul(vin.NormalL, (float3x3) gWorld);
+    vout.vTexCoord = mul(float4(vin.TexC, 0, 1), gTexTransform).xy;
+    
+    // simple LightTS — TODO: Add lightning calculation
+    vout.vLightTS = float3(0, 1, 0);
     return vout;
 }
 
-struct HSConstants
+// --- Hull Shader Constants
+struct HS_CONSTANT_DATA_OUTPUT
 {
     float Edges[3] : SV_TessFactor;
     float Inside : SV_InsideTessFactor;
 };
 
-HSConstants HSConst(InputPatch<HSControlPointInput, 3> patch, uint patchID : SV_PrimitiveID)
+// --- Hull Shader patch constant function
+HS_CONSTANT_DATA_OUTPUT ConstantsHS(InputPatch<VS_OUTPUT_HS_INPUT, 3> p, uint PatchID : SV_PrimitiveID)
 {
-    HSConstants output;
-    float3 center = (patch[0].PosL + patch[1].PosL + patch[2].PosL) / 3.0f;
-    float dist = distance(mul(float4(center, 1), gWorld).xyz, gEyePosW);
-
-    float tess = saturate((50.0f - dist) / 10.0f) * 8 + 1;
-    output.Edges[0] = tess;
-    output.Edges[1] = tess;
-    output.Edges[2] = tess;
-    output.Inside = tess;
-    return output;
+    HS_CONSTANT_DATA_OUTPUT Out;
+    Out.Edges[0] = g_TessellationFactor;
+    Out.Edges[1] = g_TessellationFactor;
+    Out.Edges[2] = g_TessellationFactor;
+    Out.Inside = g_TessellationFactor;
+    return Out;
 }
 
+// --- Hull Shader main (pass-through)
 [domain("tri")]
-[partitioning("fractional_even")]
+[partitioning("fractional_odd")]
 [outputtopology("triangle_cw")]
 [outputcontrolpoints(3)]
-[patchconstantfunc("HSConst")]
-HSControlPointOutput HSMain(InputPatch<HSControlPointInput, 3> patch, uint i : SV_OutputControlPointID)
+[patchconstantfunc("ConstantsHS")]
+[maxtessfactor(64.0)]
+HS_CONTROL_POINT_OUTPUT HSMain(InputPatch<VS_OUTPUT_HS_INPUT, 3> inputPatch, uint uCPID : SV_OutputControlPointID)
 {
-    return patch[i];
+    HS_CONTROL_POINT_OUTPUT Out;
+    Out.vWorldPos = inputPatch[uCPID].vPosWS;
+    Out.vTexCoord = inputPatch[uCPID].vTexCoord;
+    Out.vNormal = inputPatch[uCPID].vNormal;
+    Out.vLightTS = inputPatch[uCPID].vLightTS;
+    return Out;
 }
 
-struct DSOutput
+// --- Domain Shader output
+struct DS_VS_OUTPUT_PS_INPUT
 {
-    float4 PosH : SV_POSITION;
-    float3 PosW : POSITION;
-    float3 NormalW : NORMAL;
-    float2 TexC : TEXCOORD;
+    float4 vPosCS : SV_POSITION;
+    float3 vWorldPos : POSITION;
+    float3 vNormal : NORMAL;
+    float2 vTexCoord : TEXCOORD0;
+    float3 vLightTS : TEXCOORD1;
 };
 
+// --- Domain Shader
 [domain("tri")]
-DSOutput DSMain(HSConstants patchConst, const OutputPatch<HSControlPointOutput, 3> patch, float3 bary : SV_DomainLocation)
+DS_VS_OUTPUT_PS_INPUT DSMain(HS_CONSTANT_DATA_OUTPUT input, const OutputPatch<HS_CONTROL_POINT_OUTPUT, 3> patch, float3 BarycentricCoordinates : SV_DomainLocation)
 {
-    DSOutput output;
+    DS_VS_OUTPUT_PS_INPUT Out;
 
-    float3 posL = patch[0].PosL * bary.x + patch[1].PosL * bary.y + patch[2].PosL * bary.z;
-    float3 normalL = normalize(patch[0].NormalL * bary.x + patch[1].NormalL * bary.y + patch[2].NormalL * bary.z);
-    float2 texC = patch[0].TexC * bary.x + patch[1].TexC * bary.y + patch[2].TexC * bary.z;
+    // barycentric coordinates
+    float3 vWorldPos = BarycentricCoordinates.x * patch[0].vWorldPos +
+                       BarycentricCoordinates.y * patch[1].vWorldPos +
+                       BarycentricCoordinates.z * patch[2].vWorldPos;
 
-    float disp = gDisplacementMap.SampleLevel(gsamLinearWrap, texC, 0).r;
-    posL += normalL * (disp * 0.1f);
+    float3 vNormal = normalize(BarycentricCoordinates.x * patch[0].vNormal +
+                               BarycentricCoordinates.y * patch[1].vNormal +
+                               BarycentricCoordinates.z * patch[2].vNormal);
 
-    float4 posW = mul(float4(posL, 1), gWorld);
-    output.PosW = posW.xyz;
-    output.PosH = mul(posW, gViewProj);
-    output.NormalW = mul(normalL, (float3x3) gWorld);
-    output.TexC = texC;
+    float2 vTexCoord = BarycentricCoordinates.x * patch[0].vTexCoord +
+                       BarycentricCoordinates.y * patch[1].vTexCoord +
+                       BarycentricCoordinates.z * patch[2].vTexCoord;
 
-    return output;
+    float3 vLightTS = BarycentricCoordinates.x * patch[0].vLightTS +
+                      BarycentricCoordinates.y * patch[1].vLightTS +
+                      BarycentricCoordinates.z * patch[2].vLightTS;
+
+    // Displacement
+    float h = gDisplacementMap.SampleLevel(gsamLinearWrap, vTexCoord, 0).r;
+    h = pow(h, 0.5f);
+    float disp = (h - 0.5f) * (g_DisplacementScale * 20.0f);
+    vWorldPos += vNormal * disp;
+    
+
+    Out.vWorldPos = vWorldPos;
+    Out.vNormal = vNormal;
+    Out.vTexCoord = vTexCoord;
+    Out.vLightTS = vLightTS;
+    Out.vPosCS = mul(float4(vWorldPos, 1), gViewProj);
+
+    return Out;
 }
 
-float4 PSMain(DSOutput pin) : SV_Target
+// --- Pixel Shader
+float4 PSMain(DS_VS_OUTPUT_PS_INPUT pin) : SV_TARGET
 {
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    float3 normal = normalize(gNormalMap.Sample(gsamLinearWrap, pin.vTexCoord).rgb * 2 - 1);
+    float3 toLight = normalize(pin.vLightTS);
 
-    float3 normal = normalize(pin.NormalW);
-    float3 toEye = normalize(gEyePosW - pin.PosW);
+    float4 baseColor = float4(gDiffuseMap.Sample(gsamLinearWrap, pin.vTexCoord).rgb, 1.0f);
 
-    Material mat = { diffuseAlbedo, gFresnelR0, 1.0f - gRoughness };
-    float3 shadowFactor = 1.0f;
-    float4 directLight = ComputeLighting(gLights, mat, pin.PosW, normal, toEye, shadowFactor);
-
-    float4 litColor = gAmbientLight * diffuseAlbedo + directLight;
-    litColor.a = diffuseAlbedo.a;
-    return litColor;
+    float diffuse = saturate(dot(normal, toLight));
+    float4 color = baseColor * diffuse + baseColor * gAmbientLight;
+    color.a = baseColor.a;
+    return color;
 }

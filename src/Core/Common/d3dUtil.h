@@ -273,6 +273,12 @@ struct MaterialConstants
 
 	// Used in texture mapping.
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+
+	float TessellationFactor = 1.0f;
+	float DisplacementScale = 0.05f;
+	float DisplacementBias = 0.0f;
+	float padding;
+
 };
 
 // Simple struct to represent a material for our demos.  A production 3D engine
@@ -309,6 +315,9 @@ struct Material
 	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = .25f;
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	float TessellationFactor = 1.0f;
+	float DisplacementScale = 0.1f;
+	float DisplacementBias = 0.0f;
 };
 
 struct Texture
