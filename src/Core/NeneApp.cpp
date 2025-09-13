@@ -225,8 +225,8 @@ void NeneApp::UpdateVisibleRenderItems()
         DirectX::BoundingBox localBox = sub.Bounds;
 
         // Преобразуем bounding box в world space
-        XMMATRIX world = XMLoadFloat4x4(&ri->World);
-        localBox.Transform(localBox, world);
+        //XMMATRIX world = XMLoadFloat4x4(&ri->World);
+        //localBox.Transform(localBox, world);
 
         // Фруструм-тест
         bool visible = true;
@@ -274,6 +274,11 @@ void NeneApp::UpdateVisibleRenderItems()
 
         mVisibleRitems.push_back(ri);
     }
+
+    m_tessMesh.clear();
+    mNormalRitems.clear();
+    mBasicRitems.clear();
+    mOpaqueRitems.clear();
     // Filtering models from LoadObjModel
     for (auto& ri : mVisibleRitems)
     {
@@ -344,6 +349,7 @@ void NeneApp::Update(const GameTimer& gt)
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
+    UpdateVisibleRenderItems();
 }
 
 void NeneApp::Draw(const GameTimer& gt)
@@ -401,8 +407,6 @@ void NeneApp::PopulateCommandList()
 
     auto passCB = mCurrFrameResource->PassCB->Resource();
     m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
-    
-    UpdateVisibleRenderItems();
 
     // Basic objects rendering
     if (!mIsWireframe) {
@@ -891,6 +895,7 @@ void NeneApp::BuildBoxGeometry()
     boxSubmesh.BaseVertexLocation = 0;
 
     std::vector<Vertex> vertices(box.Vertices.size());
+    boxSubmesh.Bounds = ComputeBounds(vertices);
 
     for (size_t i = 0; i < box.Vertices.size(); ++i)
     {

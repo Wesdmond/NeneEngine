@@ -189,7 +189,7 @@ DS_VS_OUTPUT_PS_INPUT DSMain(HS_CONSTANT_DATA_OUTPUT input, const OutputPatch<HS
     // Displacement
     float h = gDisplacementMap.SampleLevel(gsamLinearWrap, vTexCoord, 0).r;
     h = pow(h, 0.5f);
-    float disp = (h - 0.5f) * (g_DisplacementScale * 20.0f);
+    float disp = h * g_DisplacementScale;
     vWorldPos += vNormal * disp;
     
 
