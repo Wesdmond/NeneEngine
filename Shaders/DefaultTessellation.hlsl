@@ -161,6 +161,7 @@ struct DS_VS_OUTPUT_PS_INPUT
     float3 vNormal : NORMAL;
     float2 vTexCoord : TEXCOORD0;
     float3 vLightTS : TEXCOORD1;
+    float vHeight : TEXCOORD2;
 };
 
 // --- Domain Shader
@@ -198,6 +199,7 @@ DS_VS_OUTPUT_PS_INPUT DSMain(HS_CONSTANT_DATA_OUTPUT input, const OutputPatch<HS
     Out.vTexCoord = vTexCoord;
     Out.vLightTS = vLightTS;
     Out.vPosCS = mul(float4(vWorldPos, 1), gViewProj);
+    Out.vHeight = h;
 
     return Out;
 }
@@ -205,6 +207,8 @@ DS_VS_OUTPUT_PS_INPUT DSMain(HS_CONSTANT_DATA_OUTPUT input, const OutputPatch<HS
 // --- Pixel Shader
 float4 PSMain(DS_VS_OUTPUT_PS_INPUT pin) : SV_TARGET
 {
+    float h = pin.vHeight;
+    return float4(h, h, h, 1.0f);
     float3 normal = normalize(gNormalMap.Sample(gsamLinearWrap, pin.vTexCoord).rgb * 2 - 1);
     float3 toLight = normalize(pin.vLightTS);
 

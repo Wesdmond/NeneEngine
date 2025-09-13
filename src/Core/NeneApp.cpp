@@ -35,7 +35,10 @@ bool NeneApp::Initialize()
     BuildMaterials();
     BuildBoxGeometry();
     BuildDisplacementTestGeometry();
-    BuildMountainGeometry();
+    BuildMountainGeometry(256, 256, "highMountain");
+    BuildMountainGeometry(2, 2, "lowMountain");
+    BuildMountainGeometry(256, 256, "hBox");
+    BuildMountainGeometry(2, 2, "lBox");
     //LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
     BuildRenderItems();
     BuildFrameResources();
@@ -107,6 +110,7 @@ void NeneApp::UpdateCamera(const GameTimer& gt)
     m_camera.UpdateViewMatrix();
     XMMATRIX view = m_camera.GetView();
     XMStoreFloat4x4(&mView, view);
+    XMStoreFloat4x4(&mProj, m_camera.GetProj());
 
     // std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
 }
@@ -207,9 +211,8 @@ void NeneApp::UpdateVisibleRenderItems()
 {
     mVisibleRitems.clear();
 
-    // Восстановим viewProj матрицу, она у тебя в mMainPassCB.ViewProj (transposed)
-    //XMMATRIX viewProj = XMLoadFloat4x4(&mMainPassCB.ViewProj); // Если ты хранишь транспонированную - убедись, что порядок корректен
     XMMATRIX viewProj = XMMatrixTranspose(XMLoadFloat4x4(&mMainPassCB.ViewProj));
+
     // Create BoundingFrustum from matrix
     DirectX::BoundingFrustum frustum;
     DirectX::BoundingFrustum::CreateFromMatrix(frustum, viewProj);
@@ -288,8 +291,7 @@ void NeneApp::UpdateVisibleRenderItems()
         else if (mat->HasNormalMap)
             mNormalRitems.push_back(ri);
         else
-            mBasicRitems.push_back(ri);
-        mOpaqueRitems.push_back(ri);
+            mOpaqueRitems.push_back(ri);
     }
 }
 DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
@@ -446,8 +448,10 @@ void NeneApp::PopulateCommandList()
     ImGui::Text("Frustum Culling Settings");
     ImGui::Checkbox("Frustum Culling", &mUseFrustumCulling);
     ImGui::SliderFloat("LOD Distance Threshold", &mLODDistanceThreshold, 5.0f, 200.0f);
-    ImGui::Text("Visible objects: %d", (int)mVisibleRitems.size());
+    ImGui::Text("Visible objects: %d/%d ", (int)mVisibleRitems.size(), (int)mAllRitems.size());
 
+    ImGui::Text("Camera Settings");
+    ImGui::SliderFloat("Camera speed", &m_cameraSpeed, 1.0f, 100.0f);
     std::vector<std::string> geoNames;
     for (auto& kv : mGeometries)
         geoNames.push_back(kv.first);
@@ -479,7 +483,7 @@ void NeneApp::PopulateCommandList()
     if (mountMat)
     {
         if (ImGui::SliderFloat("Tessellation Factor (Mountain)", &mountMat->TessellationFactor, 1.0f, 64.0f) ||
-            ImGui::SliderFloat("Displacement Scale (Mountain)", &mountMat->DisplacementScale, 0.0f, 1.0f) ||
+            ImGui::SliderFloat("Displacement Scale (Mountain)", &mountMat->DisplacementScale, 0.0f, 100.0f) ||
             ImGui::SliderFloat("Displacement Bias (Mountain)", &mountMat->DisplacementBias, -1.0f, 1.0f))
         {
             mountMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
@@ -985,10 +989,10 @@ void NeneApp::BuildDisplacementTestGeometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
-void NeneApp::BuildMountainGeometry()
+void NeneApp::BuildMountainGeometry(UINT x, UINT y, std::string meshName)
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData plane = geoGen.CreateGrid(100.f, 200.f, 16, 16);
+    GeometryGenerator::MeshData plane = geoGen.CreateGrid(10.f, 10.f, x, y);
 
     SubmeshGeometry moutain;
     moutain.IndexCount = (UINT)plane.Indices32.size();
@@ -1009,10 +1013,10 @@ void NeneApp::BuildMountainGeometry()
     std::vector<std::uint32_t> indices = plane.Indices32;
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
 
     auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "mountainGeo";
+    geo->Name = meshName + "Geo";
 
     ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
     CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
@@ -1031,7 +1035,7 @@ void NeneApp::BuildMountainGeometry()
     geo->IndexFormat = DXGI_FORMAT_R32_UINT;
     geo->IndexBufferByteSize = ibByteSize;
 
-    geo->DrawArgs["mountain"] = moutain;
+    geo->DrawArgs[meshName] = moutain;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -1210,7 +1214,7 @@ void NeneApp::BuildMaterials()
 
 void NeneApp::BuildRenderItems()
 {
-    auto boxRitem = std::make_shared<RenderItem>();
+    /*auto boxRitem = std::make_shared<RenderItem>();
     boxRitem->ObjCBIndex = 0;
     boxRitem->Mat = mMaterials["woodCrate"].get();
     boxRitem->World = Matrix::CreateTranslation(0.0f, 4.0f, 0.0f);
@@ -1232,19 +1236,57 @@ void NeneApp::BuildRenderItems()
     sphereRitem->StartIndexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].StartIndexLocation;
     sphereRitem->BaseVertexLocation = sphereRitem->Geo->DrawArgs["tessSphere"].BaseVertexLocation;
     mAllRitems.push_back(std::move(sphereRitem));
-    m_tessMesh.push_back(mAllRitems.back());
+    m_tessMesh.push_back(mAllRitems.back());*/
 
     auto mountainRitem = std::make_shared<RenderItem>();
-    mountainRitem->ObjCBIndex = 2;
+    mountainRitem->ObjCBIndex = mAllRitems.size();
     mountainRitem->Mat = mMaterials["mountain"].get();
-    mountainRitem->World = Matrix::CreateTranslation(0.0f, 0.0f, 0.0f);
-    mountainRitem->Geo = mGeometries["mountainGeo"].get();
+    mountainRitem->World = Matrix::CreateTranslation(-11.0f, 0.0f, 0.0f);
+    mountainRitem->Geo = mGeometries["highMountainGeo"].get();
     mountainRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    mountainRitem->IndexCount = mountainRitem->Geo->DrawArgs["mountain"].IndexCount;
-    mountainRitem->StartIndexLocation = mountainRitem->Geo->DrawArgs["mountain"].StartIndexLocation;
-    mountainRitem->BaseVertexLocation = mountainRitem->Geo->DrawArgs["mountain"].BaseVertexLocation;
+    mountainRitem->IndexCount = mountainRitem->Geo->DrawArgs["highMountain"].IndexCount;
+    mountainRitem->StartIndexLocation = mountainRitem->Geo->DrawArgs["highMountain"].StartIndexLocation;
+    mountainRitem->BaseVertexLocation = mountainRitem->Geo->DrawArgs["highMountain"].BaseVertexLocation;
     mAllRitems.push_back(std::move(mountainRitem));
     m_tessMesh.push_back(mAllRitems.back());
+
+    auto lowmountainRitem = std::make_shared<RenderItem>();
+    lowmountainRitem->ObjCBIndex = mAllRitems.size();;
+    lowmountainRitem->Mat = mMaterials["mountain"].get();
+    lowmountainRitem->World = Matrix::CreateTranslation(0.0f, 0.0f, 0.0f);
+    lowmountainRitem->Geo = mGeometries["lowMountainGeo"].get();
+    lowmountainRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    lowmountainRitem->IndexCount = lowmountainRitem->Geo->DrawArgs["lowMountain"].IndexCount;
+    lowmountainRitem->StartIndexLocation = lowmountainRitem->Geo->DrawArgs["lowMountain"].StartIndexLocation;
+    lowmountainRitem->BaseVertexLocation = lowmountainRitem->Geo->DrawArgs["lowMountain"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(lowmountainRitem));
+    m_tessMesh.push_back(mAllRitems.back());
+
+    auto hBox = std::make_shared<RenderItem>();
+    hBox->ObjCBIndex = mAllRitems.size();
+    hBox->Mat = mMaterials["woodCrate"].get();
+    hBox->World = Matrix::CreateTranslation(-11.0f, 0.0f, -11.0f);
+    hBox->Geo = mGeometries["hBoxGeo"].get();
+    hBox->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    hBox->IndexCount = hBox->Geo->DrawArgs["hBox"].IndexCount;
+    hBox->StartIndexLocation = hBox->Geo->DrawArgs["hBox"].StartIndexLocation;
+    hBox->BaseVertexLocation = hBox->Geo->DrawArgs["hBox"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(hBox));
+    m_tessMesh.push_back(mAllRitems.back());
+
+    auto lBox = std::make_shared<RenderItem>();
+    lBox->ObjCBIndex = mAllRitems.size();;
+    lBox->Mat = mMaterials["woodCrate"].get();
+    lBox->World = Matrix::CreateTranslation(0.0f, 0.0f, -11.0f);
+    lBox->Geo = mGeometries["lBoxGeo"].get();
+    lBox->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    lBox->IndexCount = lBox->Geo->DrawArgs["lBox"].IndexCount;
+    lBox->StartIndexLocation = lBox->Geo->DrawArgs["lBox"].StartIndexLocation;
+    lBox->BaseVertexLocation = lBox->Geo->DrawArgs["lBox"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(lBox));
+    m_tessMesh.push_back(mAllRitems.back());
+
+
     
     std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
     std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl;

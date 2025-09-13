@@ -67,7 +67,7 @@ private:
     void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
     void BuildDisplacementTestGeometry();
-    void BuildMountainGeometry();
+    void BuildMountainGeometry(UINT x, UINT y, std::string meshName);
     void BuildPSOs();
 	void BuildTextureSRVs();
     void BuildFrameResources();
@@ -134,14 +134,14 @@ private:
     // Frustrum culling
     std::vector<std::shared_ptr<RenderItem>> mVisibleRitems;
     float mLODDistanceThreshold = 30.0f;
-    bool mUseFrustumCulling = true;
+    bool mUseFrustumCulling = false;
 
     std::string mCurrentGeoName;
     int mCurrentGeoIndex = 0;   
 
 
     bool mIsWireframe = false;
-    float m_cameraSpeed = 10;
+    float m_cameraSpeed = 20;
     float m_mouseSensitivity = 0.005f;
 
     // Inputs

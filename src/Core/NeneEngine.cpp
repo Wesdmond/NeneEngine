@@ -154,7 +154,7 @@ int NeneEngine::OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 
 void NeneEngine::Initialize() {
-    if (!m_window->Create(m_title, 800, 800))
+    if (!m_window->Create(m_title, 1200, 800))
     {
         throw std::runtime_error("Failed to create window");
     }
