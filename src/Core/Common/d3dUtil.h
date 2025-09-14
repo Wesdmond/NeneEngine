@@ -29,6 +29,7 @@
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
+#include <SimpleMath.h>
 
 extern const int gNumFrameResources;
 
@@ -142,6 +143,14 @@ public:
     std::wstring Filename;
     int LineNumber = -1;
 };
+
+DirectX::SimpleMath::Matrix CreateTransformMatrix(DirectX::SimpleMath::Vector3 location, DirectX::SimpleMath::Vector3 scale, DirectX::SimpleMath::Quaternion rotation);
+
+DirectX::SimpleMath::Matrix CreateTransformMatrix(DirectX::SimpleMath::Vector3 location, DirectX::SimpleMath::Vector3 scale, DirectX::SimpleMath::Vector3 yawPitchRollangles);
+
+DirectX::SimpleMath::Matrix CreateTransformMatrix(float locationX, float locationY, float locationZ,
+	float scaleX, float scaleY, float scaleZ, float yaw, float pitch, float roll);
+DirectX::SimpleMath::Matrix CreateTransformMatrix(float locationX, float locationY, float locationZ);
 
 // Defines a subrange of geometry in a MeshGeometry.  This is for when multiple
 // geometries are stored in one vertex and index buffer.  It provides the offsets

@@ -170,12 +170,11 @@ DS_VS_OUTPUT_PS_INPUT DSMain(HS_CONSTANT_DATA_OUTPUT input, const OutputPatch<HS
 {
     DS_VS_OUTPUT_PS_INPUT Out;
 
-    // barycentric coordinates
     float3 vWorldPos = BarycentricCoordinates.x * patch[0].vWorldPos +
                        BarycentricCoordinates.y * patch[1].vWorldPos +
                        BarycentricCoordinates.z * patch[2].vWorldPos;
 
-    float3 vNormal = normalize(BarycentricCoordinates.x * patch[0].vNormal +
+    Out.vNormal = normalize(BarycentricCoordinates.x * patch[0].vNormal +
                                BarycentricCoordinates.y * patch[1].vNormal +
                                BarycentricCoordinates.z * patch[2].vNormal);
 
@@ -183,31 +182,33 @@ DS_VS_OUTPUT_PS_INPUT DSMain(HS_CONSTANT_DATA_OUTPUT input, const OutputPatch<HS
                        BarycentricCoordinates.y * patch[1].vTexCoord +
                        BarycentricCoordinates.z * patch[2].vTexCoord;
 
-    float3 vLightTS = BarycentricCoordinates.x * patch[0].vLightTS +
+    Out.vLightTS = BarycentricCoordinates.x * patch[0].vLightTS +
                       BarycentricCoordinates.y * patch[1].vLightTS +
                       BarycentricCoordinates.z * patch[2].vLightTS;
 
     // Displacement
     float h = gDisplacementMap.SampleLevel(gsamLinearWrap, vTexCoord, 0).r;
+    Out.vHeight = h;
     h = pow(h, 0.5f);
     float disp = h * g_DisplacementScale;
-    vWorldPos += vNormal * disp;
+    //vWorldPos += Out.vNormal * disp;
+    vWorldPos += float3(0, h * 1 * g_DisplacementScale, 0);
     
 
     Out.vWorldPos = vWorldPos;
-    Out.vNormal = vNormal;
     Out.vTexCoord = vTexCoord;
-    Out.vLightTS = vLightTS;
     Out.vPosCS = mul(float4(vWorldPos, 1), gViewProj);
-    Out.vHeight = h;
 
     return Out;
 }
 
 // --- Pixel Shader
 float4 PSMain(DS_VS_OUTPUT_PS_INPUT pin) : SV_TARGET
-{
+{    
+    //float h = gDisplacementMap.SampleLevel(gsamLinearWrap, pin.vTexCoord, 0).r;
     float h = pin.vHeight;
+    float2 texC = pin.vTexCoord;
+    return float4(texC, 0, 1.0f);
     return float4(h, h, h, 1.0f);
     float3 normal = normalize(gNormalMap.Sample(gsamLinearWrap, pin.vTexCoord).rgb * 2 - 1);
     float3 toLight = normalize(pin.vLightTS);

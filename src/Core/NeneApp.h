@@ -67,7 +67,7 @@ private:
     void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
     void BuildDisplacementTestGeometry();
-    void BuildMountainGeometry(UINT x, UINT y, std::string meshName);
+    void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform);
     void BuildPSOs();
 	void BuildTextureSRVs();
     void BuildFrameResources();

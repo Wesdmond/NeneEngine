@@ -13,6 +13,44 @@ DxException::DxException(HRESULT hr, const std::wstring& functionName, const std
 {
 }
 
+DirectX::SimpleMath::Matrix CreateTransformMatrix(DirectX::SimpleMath::Vector3 location, DirectX::SimpleMath::Vector3 scale, DirectX::SimpleMath::Quaternion rotation)
+{
+    using namespace DirectX::SimpleMath;
+    Matrix translationMatrix = Matrix::CreateTranslation(location);
+
+    Matrix scaleMatrix = Matrix::CreateScale(scale);
+
+    Matrix rotationMatrix = Matrix::CreateFromQuaternion(rotation);
+
+    // SRT matrix
+    Matrix transformMatrix = scaleMatrix * rotationMatrix * translationMatrix;
+
+    return transformMatrix;
+}
+
+DirectX::SimpleMath::Matrix CreateTransformMatrix(DirectX::SimpleMath::Vector3 location, DirectX::SimpleMath::Vector3 scale, DirectX::SimpleMath::Vector3 yawPitchRollangles)
+{
+    using namespace DirectX::SimpleMath;
+    //Matrix ans = CreateTransformMatrix(location, scale, Quaternion::CreateFromYawPitchRoll(yawPitchRollangles));
+    return CreateTransformMatrix(location, scale, Quaternion::CreateFromYawPitchRoll(yawPitchRollangles));
+}
+
+DirectX::SimpleMath::Matrix CreateTransformMatrix(float locationX, float locationY, float locationZ,
+    float scaleX, float scaleY, float scaleZ, float yaw, float pitch, float roll)
+{
+    using namespace DirectX::SimpleMath;
+    Matrix ans = CreateTransformMatrix(Vector3(locationX, locationY, locationZ), Vector3(scaleX, scaleY, scaleZ),
+        Vector3(yaw, pitch, roll));
+    return ans;
+}
+
+DirectX::SimpleMath::Matrix CreateTransformMatrix(float locationX, float locationY, float locationZ)
+{
+    using namespace DirectX::SimpleMath;
+    Matrix ans = CreateTransformMatrix(locationX, locationY, locationZ, 1, 1, 1, 0, 0, 0);
+    return ans;
+}
+
 bool d3dUtil::IsKeyDown(int vkeyCode)
 {
     return (GetAsyncKeyState(vkeyCode) & 0x8000) != 0;
