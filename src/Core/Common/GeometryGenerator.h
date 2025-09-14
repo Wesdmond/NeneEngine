@@ -106,6 +106,11 @@ public:
     MeshData CreateGrid(float width, float depth, uint32 m, uint32 n);
 
 	///<summary>
+	/// Almost same grid as CreateGrid, but creats for quad meshes
+	///</summary>
+	MeshData CreateGridQuad(float width, float depth, uint32 m, uint32 n);
+
+	///<summary>
 	/// Creates a quad aligned with the screen.  This is useful for postprocessing and screen effects.
 	///</summary>
     MeshData CreateQuad(float x, float y, float w, float h, float depth);

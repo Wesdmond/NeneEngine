@@ -613,6 +613,77 @@ GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float dep
     return meshData;
 }
 
+GeometryGenerator::MeshData GeometryGenerator::CreateGridQuad(float width, float depth, uint32 m, uint32 n)
+{
+	MeshData meshData;
+
+	uint32 vertexRows = m + 1;  // rows of vertices
+	uint32 vertexCols = n + 1;  // cols of vertices
+	uint32 vertexCount = vertexRows * vertexCols;
+	uint32 quadCount = m * n;
+
+	//
+	// Create the vertices.
+	//
+
+	float halfWidth = 0.5f * width;
+	float halfDepth = 0.5f * depth;
+
+	float dx, dz, du, dv;
+	if (m == 1 && n == 1) {
+		// Для одного quad’а шаги не нужны, задаём углы напрямую
+		dx = width;  // полный размер quad’а
+		dz = depth;
+		du = 1.0f;   // полный диапазон текстурных координат
+		dv = 1.0f;
+	}
+	else {
+		dx = width / n;   // шаг по x (ширина)
+		dz = depth / m;   // шаг по z (глубина)
+		du = 1.0f / n;    // шаг по u (текстура)
+		dv = 1.0f / m;    // шаг по v (текстура)
+	}
+
+	meshData.Vertices.resize(vertexCount);
+	for (uint32 i = 0; i < vertexRows; ++i)
+	{
+		float z = halfDepth - i * dz;
+		for (uint32 j = 0; j < vertexCols; ++j)
+		{
+			float x = -halfWidth + j * dx;
+
+			uint32 index = i * vertexCols + j;
+			meshData.Vertices[index].Position = XMFLOAT3(x, 0.0f, z);
+			meshData.Vertices[index].Normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			meshData.Vertices[index].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
+			meshData.Vertices[index].TexC = XMFLOAT2(j * du, i * dv);
+		}
+	}
+
+	//
+	// Create the indices.
+	//
+
+	meshData.Indices32.resize(quadCount * 4); // 4 indices per face
+
+	// Iterate over each quad and compute indices.
+	uint32 k = 0;
+	for (uint32 i = 0; i < m; ++i)
+	{
+		for (uint32 j = 0; j < n; ++j)
+		{
+			meshData.Indices32[k] = i * vertexCols + j;
+			meshData.Indices32[k + 1] = i * vertexCols + j + 1;
+			meshData.Indices32[k + 2] = (i + 1) * vertexCols + j + 1;
+			meshData.Indices32[k + 3] = (i + 1) * vertexCols + j;
+
+			k += 4;
+		}
+	}
+
+	return meshData;
+}
+
 GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, float w, float h, float depth)
 {
     MeshData meshData;
