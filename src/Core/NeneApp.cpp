@@ -209,79 +209,69 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
 void NeneApp::UpdateVisibleRenderItems()
 {
     mVisibleRitems.clear();
+    XMMATRIX viewMat = XMLoadFloat4x4(&mView);      // World → view
+    XMMATRIX projMat = XMLoadFloat4x4(&mProj);
 
-    XMMATRIX viewProj = XMMatrixTranspose(XMLoadFloat4x4(&mMainPassCB.ViewProj));
-
-    // Create BoundingFrustum from matrix
     BoundingFrustum frustum;
-    BoundingFrustum::CreateFromMatrix(frustum, viewProj);
+    BoundingFrustum::CreateFromMatrix(frustum, projMat);
 
     XMVECTOR eyePos = XMLoadFloat3(&mMainPassCB.EyePosW);
 
-    for (auto& ri : mAllRitems) // или перебрать нужный набор: mAllRitems / m_tessMesh / ...
+    for (auto& ri : mAllRitems)
     {
-        // возможно хранится DrawArgs map -> надо взять правильный SubmeshGeometry.
-        const SubmeshGeometry& sub = ri->Geo->DrawArgs.begin()->second; // <- заменить реальным доступом к нужному Submesh
-        BoundingBox worldBox = sub.Bounds;
-        XMMATRIX world = XMLoadFloat4x4(&ri->World);
-        worldBox.Transform(worldBox, world);
+        XMMATRIX worldMat = XMLoadFloat4x4(&ri->World);
+        BoundingBox totalBounds;
+        bool first = true;
+        for (const auto& drawArg : ri->Geo->DrawArgs) {
+            BoundingBox subBox = drawArg.second.Bounds;
+            subBox.Transform(subBox, worldMat);
+            if (first) { totalBounds = subBox; first = false; }
+            else { totalBounds.CreateMerged(totalBounds, totalBounds, subBox); }
+        }
 
         bool visible = true;
         if (mUseFrustumCulling)
         {
-            visible = frustum.Intersects(worldBox);
-            std::cout << "Object " << ri->ObjCBIndex << " at " << ri->World._41 << ", " << ri->World._42 << ", " << ri->World._43
-                << " visible: " << visible << std::endl;
+            totalBounds.Transform(totalBounds, viewMat);
+            visible = frustum.Intersects(totalBounds);
         }
-
+        ri->Visible = visible;
         if (!visible)
             continue;
 
-        // LOD: расстояние от камеры до центра bounds
-        XMVECTOR center = XMLoadFloat3(&worldBox.Center);
+        XMVECTOR center = XMLoadFloat3(&totalBounds.Center);
         float dist = XMVectorGetX(XMVector3Length(XMVectorSubtract(center, eyePos)));
 
-        // Выбор LOD по distance threshold
-        if (dist > mLODDistanceThreshold)
-        {
-            //// дальний LOD
-            //if (ri->GeoLOD1)
-            //{
-            //    ri->SelectedGeo = ri->GeoLOD1;
-            //    // рекомендуется хранить отдельный Submesh в GeoLOD1 с тем же именем, либо прямые IndexCountLOD поля
-            //    ri->SelectedIndexCount = ri->SelectedGeo->DrawArgs.begin()->second.IndexCount;
-            //    ri->SelectedStartIndexLocation = ri->SelectedGeo->DrawArgs.begin()->second.StartIndexLocation;
-            //    ri->SelectedBaseVertexLocation = ri->SelectedGeo->DrawArgs.begin()->second.BaseVertexLocation;
-            //}
-            //else
-            //{
-            //    // нет LOD1 -> используем hi
-            //    ri->SelectedGeo = ri->Geo;
-            //    ri->SelectedIndexCount = ri->IndexCount;
-            //    ri->SelectedStartIndexLocation = ri->StartIndexLocation;
-            //    ri->SelectedBaseVertexLocation = ri->BaseVertexLocation;
-            //}
+        if (ri->UseLOD) {
+            if (dist > ri->LODThreshold) {
+                ri->CurrentGeo = ri->GeoLow ? ri->GeoLow : ri->Geo;
+            }
+            else if (dist < ri->LODThreshold / 2) {
+                ri->CurrentGeo = ri->GeoHigh ? ri->GeoHigh : ri->Geo;
+            }
+            else {
+                ri->CurrentGeo = ri->Geo;
+            }
         }
-        else
-        {
-            //// ближний LOD
-            //ri->SelectedGeo = ri->Geo;
-            //ri->SelectedIndexCount = ri->IndexCount;
-            //ri->SelectedStartIndexLocation = ri->StartIndexLocation;
-            //ri->SelectedBaseVertexLocation = ri->BaseVertexLocation;
+        else {
+            ri->CurrentGeo = ri->Geo;
         }
+        auto& drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
+        ri->SelectedIndexCount = drawArg.IndexCount;
+        ri->SelectedStartIndexLocation = drawArg.StartIndexLocation;
+        ri->SelectedBaseVertexLocation = drawArg.BaseVertexLocation;
 
         mVisibleRitems.push_back(ri);
     }
 
-    m_tessMesh.clear();
+    mTessRitems.clear();
     mOpaqueRitems.clear();
     // Filtering models from LoadObjModel
     for (auto& ri : mVisibleRitems)
     {
         Material* mat = ri->Mat;
         if (mat->HasDisplacementMap)
-            m_tessMesh.push_back(ri);
+            mTessRitems.push_back(ri);
         else
             mOpaqueRitems.push_back(ri);
     }
@@ -310,7 +300,6 @@ DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
         (_min.z + _max.z) * 0.5f
     };
 
-    // extents по каждой оси отдельно
     DirectX::XMFLOAT3 extents = {
         (_max.x - _min.x) * 0.5f,
         (_max.y - _min.y) * 0.5f,
@@ -419,7 +408,7 @@ void NeneApp::PopulateCommandList()
         m_commandList->SetPipelineState(mPSOs["tesselation_wireframe"].Get());
     }
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
-    DrawRenderItems(m_commandList.Get(), m_tessMesh);
+    DrawRenderItems(m_commandList.Get(), mTessRitems);
 
 // === UI ===
 #pragma region ImGui
@@ -440,44 +429,196 @@ void NeneApp::PopulateCommandList()
 
     ImGui::Text("Camera Settings");
     ImGui::SliderFloat("Camera speed", &m_cameraSpeed, 1.0f, 100.0f);
-    std::vector<std::string> geoNames;
-    for (auto& kv : mGeometries)
-        geoNames.push_back(kv.first);
+    ImGui::End();
 
-    // Конвертируем имена в массив const char* для ImGui
-    std::vector<const char*> items;
-    for (auto& name : geoNames)
-        items.push_back(name.c_str());
 
-    // Создаем Combo
-    if (ImGui::Combo("Select Geometry", &mCurrentGeoIndex, items.data(), (int)items.size()))
-    {
-        mCurrentGeoName = geoNames[mCurrentGeoIndex];
-    }
-
-    ImGui::Text("Rock options");
-    Material* tessMat = mMaterials["rock"].get();
-    if (tessMat)
-    {
-        if(ImGui::SliderFloat("Tessellation Factor (Rock)", &tessMat->TessellationFactor, 1.0f, 64.0f) ||
-            ImGui::SliderFloat("Displacement Scale (Rock)", &tessMat->DisplacementScale, 0.0f, 10.0f) ||
-            ImGui::SliderFloat("Displacement Bias (Rock)", &tessMat->DisplacementBias, -100.0f, 100.0f))
-        {
-            tessMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
+    ImGui::Begin("Render Item");
+    if (ImGui::CollapsingHeader("Render Items debug table", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::BeginTable("Render Items", 4, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Name"); ImGui::TableSetupColumn("Material"); ImGui::TableSetupColumn("Visible"); ImGui::TableSetupColumn("Distance");
+            ImGui::TableHeadersRow();
+            for (auto& ri : mAllRitems) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::Text("%s", ri->Name.c_str());
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%s", ri->Mat->Name.c_str());
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%s", ri->Visible ? "true" : "false");
+            }
+            ImGui::EndTable();
         }
     }
-    ImGui::Text("Mountain options");
-    Material* mountMat = mMaterials["mountain"].get();
-    if (mountMat)
+
+    std::vector<const char*> itemNames;
+    for (const auto& ri : mAllRitems)
+        itemNames.push_back(ri->Name.empty() ? ("Object " + std::to_string(ri->ObjCBIndex)).c_str() : ri->Name.c_str());
+
+    ImGui::Combo("Select Render Item", &mSelectedRItemIndex, itemNames.data(), (int)itemNames.size());
+        
+    if (mSelectedRItemIndex >= 0 && mSelectedRItemIndex < (int)mAllRitems.size())
     {
-        if (ImGui::SliderFloat("Tessellation Factor (Mountain)", &mountMat->TessellationFactor, 1.0f, 64.0f) ||
-            ImGui::SliderFloat("Displacement Scale (Mountain)", &mountMat->DisplacementScale, 0.0f, 10.0f) ||
-            ImGui::SliderFloat("Displacement Bias (Mountain)", &mountMat->DisplacementBias, -100.0f, 100.0f))
+        auto& ri = mAllRitems[mSelectedRItemIndex];
+        ImGui::Text("Editing: %s", ri->Name.c_str());
+
+        // Getting Pos, Rot and Scale of RenderItem object
+        Matrix world = XMLoadFloat4x4(&ri->World);
+        Vector3 scale, translation;
+        Quaternion q;
+        world.Decompose(scale, q, translation);
+        float pos[3] = { translation.x, translation.y, translation.z };
+        float rot[3] = { 0.0f, 0.0f, 0.0f };
+        float scl[3] = { scale.x, scale.y, scale.z };
+
+        // quaternion to euler
+        float pitch = asinf(-2.0f * (q.x * q.z - q.w * q.y)) * (180.0f / XM_PI);
+        float yaw = atan2f(2.0f * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z) * (180.0f / XM_PI);
+        float roll = atan2f(2.0f * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z) * (180.0f / XM_PI);
+        rot[0] = pitch; rot[1] = yaw; rot[2] = roll;
+
+        bool transformChanged = false;
+        if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            mountMat->NumFramesDirty = gNumFrameResources; // Request change on GPU
+            transformChanged |= ImGui::SliderFloat3("Position", pos, -100.0f, 100.0f, "%.2f");
+            transformChanged |= ImGui::SliderFloat3("Rotation (degrees)", rot, -180.0f, 180.0f, "%.2f");
+            transformChanged |= ImGui::SliderFloat3("Scale", scl, 0.1f, 10.0f, "%.2f");
         }
+
+        if (transformChanged)
+        {
+            DirectX::XMMATRIX newWorld = XMMatrixScaling(scl[0], scl[1], scl[2]) *
+                                         XMMatrixRotationRollPitchYaw(rot[0] * (XM_PI / 180.0f), rot[1] * (XM_PI / 180.0f), rot[2] * (XM_PI / 180.0f)) *
+                                         XMMatrixTranslation(pos[0], pos[1], pos[2]);
+            XMStoreFloat4x4(&ri->World, newWorld);
+            ri->NumFramesDirty = gNumFrameResources;
+        }
+
+        bool lodChanged = false;
+        if (ImGui::CollapsingHeader("LOD Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            lodChanged |= ImGui::Checkbox("Enable LOD", &ri->UseLOD);
+            lodChanged |= ImGui::SliderFloat("LOD Threshold", &ri->LODThreshold, 5.0f, 200.0f, "%.1f");
+
+            XMVECTOR eyePos = XMLoadFloat3(&mMainPassCB.EyePosW);
+            XMMATRIX worldMat = XMLoadFloat4x4(&ri->World);
+            BoundingBox totalBounds = ri->Geo->DrawArgs.begin()->second.Bounds;
+            totalBounds.Transform(totalBounds, worldMat);
+            XMVECTOR center = XMLoadFloat3(&totalBounds.Center);
+            float dist = XMVectorGetX(XMVector3Length(XMVectorSubtract(center, eyePos)));
+            std::string currentLODStr = "Basic";
+            if (ri->UseLOD) {
+                if (dist > ri->LODThreshold) {
+                    currentLODStr = (ri->GeoLow ? "Low" : "Basic");
+                }
+                else {
+                    currentLODStr = (ri->GeoHigh ? "High" : "Basic");
+                }
+            }
+            ImGui::Text("Preview LOD (dist=%.1f): %s", dist, currentLODStr.c_str());
+
+            std::vector<const char*> geoNames;
+            std::unordered_map<const char*, std::shared_ptr<MeshGeometry>> geoMap;
+            for (const auto& ge : mGeometries) {
+                geoNames.push_back(ge.first.c_str());
+                geoMap[ge.first.c_str()] = ge.second;
+            }
+
+            int lowGeoId = 0;
+            bool foundLow = false;
+            for (int i = 0; i < (int)geoNames.size(); ++i) {
+                if (ri->GeoLow == geoMap[geoNames[i]].get()) {
+                    lowGeoId = i;
+                    foundLow = true;
+                    break;
+                }
+            }
+            if (!foundLow) {
+                for (int i = 0; i < (int)geoNames.size(); ++i) {
+                    if (ri->Geo == geoMap[geoNames[i]].get()) {
+                        lowGeoId = i;
+                        break;
+                    }
+                }
+            }
+
+            // for High
+            int highGeoId = 0;
+            bool foundHigh = false;
+            for (int i = 0; i < (int)geoNames.size(); ++i) {
+                if (ri->GeoHigh == geoMap[geoNames[i]].get()) {
+                    highGeoId = i;
+                    foundHigh = true;
+                    break;
+                }
+            }
+            if (!foundHigh) {
+                for (int i = 0; i < (int)geoNames.size(); ++i) {
+                    if (ri->Geo == geoMap[geoNames[i]].get()) {
+                        highGeoId = i;
+                        break;
+                    }
+                }
+            }
+
+            // Combo Low LOD
+            if (ImGui::Combo("Geo for Low LOD", &lowGeoId, geoNames.data(), (int)geoNames.size())) {
+                lodChanged = true;
+                ri->GeoLow = geoMap[geoNames[lowGeoId]].get();
+                if (ri->GeoLow && ri->GeoLow->DrawArgs.size() > 0) {
+                    ri->SelectedIndexCount = ri->GeoLow->DrawArgs.begin()->second.IndexCount;
+                    ri->SelectedStartIndexLocation = ri->GeoLow->DrawArgs.begin()->second.StartIndexLocation;
+                    ri->SelectedBaseVertexLocation = ri->GeoLow->DrawArgs.begin()->second.BaseVertexLocation;
+                }
+            }
+
+            // Combo High LOD
+            if (ImGui::Combo("Geo for High LOD", &highGeoId, geoNames.data(), (int)geoNames.size())) {
+                lodChanged = true;
+                ri->GeoHigh = geoMap[geoNames[highGeoId]].get();
+                if (ri->GeoHigh && ri->GeoHigh->DrawArgs.size() > 0) {
+                    ri->SelectedIndexCount = ri->GeoHigh->DrawArgs.begin()->second.IndexCount;
+                    ri->SelectedStartIndexLocation = ri->GeoHigh->DrawArgs.begin()->second.StartIndexLocation;
+                    ri->SelectedBaseVertexLocation = ri->GeoHigh->DrawArgs.begin()->second.BaseVertexLocation;
+                }
+            }
+
+            if (lodChanged) {
+                ri->NumFramesDirty = gNumFrameResources;
+            }
+        }
+
+        if (ri->Mat && ImGui::CollapsingHeader("Material Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            Material* mat = ri->Mat;
+            bool matChanged = false;
+
+            matChanged |= ImGui::ColorEdit4("Diffuse Albedo", &mat->DiffuseAlbedo.x);
+            matChanged |= ImGui::SliderFloat("Roughness", &mat->Roughness, 0.0f, 1.0f, "%.3f");
+            matChanged |= ImGui::SliderFloat3("Fresnel R0", &mat->FresnelR0.x, 0.0f, 1.0f, "%.3f");
+
+            if (mat->HasDisplacementMap)
+            {
+                matChanged |= ImGui::SliderFloat("Tessellation Factor", &mat->TessellationFactor, 1.0f, 64.0f, "%.1f");
+                matChanged |= ImGui::SliderFloat("Displacement Scale", &mat->DisplacementScale, 0.0f, 10.0f, "%.2f");
+                matChanged |= ImGui::SliderFloat("Displacement Bias", &mat->DisplacementBias, -5.0f, 5.0f, "%.2f");
+            }
+
+            if (matChanged)
+            {
+                mat->NumFramesDirty = gNumFrameResources;
+            }
+        }
+
+        if (ImGui::Button("Reset Transform"))
+        {
+            ri->World = MathHelper::Identity4x4();
+            ri->NumFramesDirty = gNumFrameResources;
+        }
+    }
+    else
+    {
+        ImGui::Text("No Render Item selected");
     }
     ImGui::End();
+
+
 
     m_uiManager.Render(m_commandList.Get());
 #pragma endregion
@@ -783,6 +924,9 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
             ritem->Mat = mMaterials["error"].get();
         }
         
+        ritem->Name = drawArg.first + " (OBJ Submesh)";
+        ritem->UseLOD = false; // disable for obj by default
+        ritem->LODThreshold = mLODDistanceThreshold;
         ritem->World = Transform;  // TODO: aiNode transform
         ritem->TexTransform = MathHelper::Identity4x4();
         ritem->NumFramesDirty = gNumFrameResources;
@@ -887,7 +1031,6 @@ void NeneApp::BuildBoxGeometry()
     boxSubmesh.BaseVertexLocation = 0;
 
     std::vector<Vertex> vertices(box.Vertices.size());
-    boxSubmesh.Bounds = ComputeBounds(vertices);
 
     for (size_t i = 0; i < box.Vertices.size(); ++i)
     {
@@ -895,6 +1038,7 @@ void NeneApp::BuildBoxGeometry()
         vertices[i].Normal = box.Vertices[i].Normal;
         vertices[i].TexC = box.Vertices[i].TexC;
     }
+    boxSubmesh.Bounds = ComputeBounds(vertices);
 
     std::vector<std::uint16_t> indices = box.GetIndices16();
 
@@ -943,27 +1087,25 @@ void NeneApp::BuildDisplacementTestGeometry()
         vertices[i].TexC = sphere.Vertices[i].TexC;
         vertices[i].TangentU = sphere.Vertices[i].TangentU;
     }
-    sphereSubmesh.Bounds = ComputeBounds(vertices);
+    sphereSubmesh.Bounds = BoundingBox(XMFLOAT3(0.f, 0.f, 0.f), XMFLOAT3(0.5f, 0.5f, 0.5f));
 
-    // Перестраиваем индексы для quad-патчей
-    uint32_t sliceCount = 12;  // из CreateSphere
-    uint32_t stackCount = 12;  // из CreateSphere
-    uint32_t quadCount = sliceCount * (stackCount - 1); // игнорируем полюса
+    uint32_t sliceCount = 12;
+    uint32_t stackCount = 12;
+    uint32_t quadCount = sliceCount * (stackCount - 1);
     std::vector<std::uint16_t> indices;
-    indices.reserve(quadCount * 4); // 4 индекса на патч
+    indices.reserve(quadCount * 4);
 
-    // Сетка вершин (без полюсов): i=0..stackCount-2 (stacks), j=0..sliceCount-1 (slices)
-    for (uint32_t i = 0; i < stackCount - 1; ++i) // по широте (кроме последнего ring’а)
+    // i=0..stackCount-2 (stacks), j=0..sliceCount-1 (slices)
+    for (uint32_t i = 0; i < stackCount - 1; ++i)
     {
-        for (uint32_t j = 0; j < sliceCount; ++j) // по долготе
+        for (uint32_t j = 0; j < sliceCount; ++j)
         {
-            // Индексы вершин в сетке: index = 1 + i*sliceCount + j
             uint16_t bottomLeft = 1 + i * sliceCount + j;
-            uint16_t bottomRight = 1 + i * sliceCount + (j + 1) % sliceCount; // замыкаем по долготе
+            uint16_t bottomRight = 1 + i * sliceCount + (j + 1) % sliceCount;
             uint16_t topRight = 1 + (i + 1) * sliceCount + (j + 1) % sliceCount;
             uint16_t topLeft = 1 + (i + 1) * sliceCount + j;
 
-            // Порядок: bottom-left, bottom-right, top-right, top-left (CCW, для UV в DS)
+            // bottom-left, bottom-right, top-right, top-left (CCW, для UV в DS)
             indices.push_back(bottomLeft);
             indices.push_back(bottomRight);
             indices.push_back(topRight);
@@ -971,7 +1113,7 @@ void NeneApp::BuildDisplacementTestGeometry()
         }
     }
 
-    sphereSubmesh.IndexCount = (UINT)indices.size(); // 12 * 11 * 4 = 528
+    sphereSubmesh.IndexCount = (UINT)indices.size();
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -1055,6 +1197,7 @@ void NeneApp::BuildPlane(float width, float height, UINT x, UINT y, const std::s
     mGeometries[geo->Name] = std::move(geo);
 
     auto ri_plane = std::make_shared<RenderItem>();
+    ri_plane->Name = meshName;
     ri_plane->ObjCBIndex = mAllRitems.size();
     ri_plane->Mat = mMaterials[matName].get();
     ri_plane->World = transform;
@@ -1241,6 +1384,7 @@ void NeneApp::BuildMaterials()
 void NeneApp::BuildRenderItems()
 {
     auto boxRitem = std::make_shared<RenderItem>();
+    boxRitem->Name = "Box";
     boxRitem->ObjCBIndex = (int)mAllRitems.size();
     boxRitem->Mat = mMaterials["woodCrate"].get();
     boxRitem->World = Matrix::CreateTranslation(0.0f, 4.0f, 0.0f);
@@ -1252,6 +1396,7 @@ void NeneApp::BuildRenderItems()
     mAllRitems.push_back(std::move(boxRitem));
 
     auto sphereRitem = std::make_shared<RenderItem>();
+    sphereRitem->Name = "TessSphere";
     sphereRitem->ObjCBIndex = (int)mAllRitems.size();
     sphereRitem->Mat = mMaterials["rock"].get();
     sphereRitem->World = Matrix::CreateTranslation(4.0f, 4.0f, 0.0f);
@@ -1280,8 +1425,8 @@ void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
     {
         auto ri = ritems[i];
 
-        cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
-        cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+        cmdList->IASetVertexBuffers(0, 1, &ri->CurrentGeo->VertexBufferView());
+        cmdList->IASetIndexBuffer(&ri->CurrentGeo->IndexBufferView());
         cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
         CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseTex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
@@ -1302,7 +1447,7 @@ void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
         cmdList->SetGraphicsRootConstantBufferView(3, objCBAddress);
         cmdList->SetGraphicsRootConstantBufferView(5, matCBAddress);
 
-        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+        cmdList->DrawIndexedInstanced(ri->SelectedIndexCount, 1, ri->SelectedStartIndexLocation, ri->SelectedBaseVertexLocation, 0);
     }
 }
 

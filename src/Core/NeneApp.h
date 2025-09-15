@@ -10,6 +10,12 @@
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
+enum GeoType {
+    Basic = 0,
+    LOD_low = 1,
+    LOD_high = 2
+};
+
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
 struct RenderItem
@@ -34,6 +40,10 @@ struct RenderItem
 
 	Material* Mat = nullptr;
 	MeshGeometry* Geo = nullptr;
+	MeshGeometry* GeoLow = nullptr;
+	MeshGeometry* GeoHigh = nullptr;
+    MeshGeometry* CurrentGeo = nullptr;
+
 
     // Primitive topology.
     D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -42,6 +52,16 @@ struct RenderItem
     UINT IndexCount = 0;
     UINT StartIndexLocation = 0;
     int BaseVertexLocation = 0;
+
+    // For LOD
+    UINT SelectedIndexCount = 0;
+    UINT SelectedStartIndexLocation = 0;
+    int SelectedBaseVertexLocation = 0;
+
+    bool UseLOD = true;
+    float LODThreshold = 50.0f;
+    std::string Name;
+    bool Visible = false;
 };
 
 class NeneApp : public DX12App
@@ -119,7 +139,7 @@ private:
 	
     // Render items divided by PSO.
     std::vector<std::shared_ptr<RenderItem>> mOpaqueRitems;
-    std::vector<std::shared_ptr<RenderItem>> m_tessMesh;
+    std::vector<std::shared_ptr<RenderItem>> mTessRitems;
     std::vector<std::shared_ptr<RenderItem>> mNormalRitems;
     std::vector<std::shared_ptr<RenderItem>> mBasicRitems;
 
@@ -135,9 +155,7 @@ private:
     std::vector<std::shared_ptr<RenderItem>> mVisibleRitems;
     float mLODDistanceThreshold = 30.0f;
     bool mUseFrustumCulling = false;
-
-    std::string mCurrentGeoName;
-    int mCurrentGeoIndex = 0;   
+    int mSelectedRItemIndex = 0; // Selected RenderItem index in ImGui
 
 
     bool mIsWireframe = false;
