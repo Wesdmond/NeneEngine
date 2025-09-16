@@ -4,6 +4,7 @@
 #include "Common/d3dUtil.h"
 #include <vector>
 
+
 class GBuffer
 {
 public:
@@ -14,7 +15,7 @@ public:
     void BindForGeometryPass(ID3D12GraphicsCommandList* cmdList);
     void BindForLightingPass(ID3D12GraphicsCommandList* cmdList);
     void Unbind(ID3D12GraphicsCommandList* cmdList);
-    void Resize(UINT width, UINT height);
+    void Resize(ID3D12Device* device, UINT width, UINT height);
 
     std::vector<D3D12_GPU_DESCRIPTOR_HANDLE> GetSRVs() const { return m_gbufferSRVs; }
     D3D12_CPU_DESCRIPTOR_HANDLE GetDepthSRV() const { return m_depthSRV; }
@@ -25,6 +26,7 @@ public:
 private:
     D3D12_CPU_DESCRIPTOR_HANDLE m_srvHeapStart;  // Начало SRV heap для G-Buffer
     D3D12_GPU_DESCRIPTOR_HANDLE m_srvGpuHeapStart;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_rtvHeapStart;
 
     // RTV for G-Buffer: 0-Position (RGBA32F), 1-Normal (RGBA32F), 2-Albedo (RGBA8UN), 3-Spec (R32F for roughness + GBA for FresnelR0)
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_gbufferTextures;

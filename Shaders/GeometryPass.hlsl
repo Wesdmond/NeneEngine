@@ -67,24 +67,16 @@ VertexOut VS(VertexIn vin)
 
 struct PSOutput
 {
-    float4 Position : SV_TARGET0;
+    float4 Albedo : SV_TARGET0;
     float4 Normal : SV_TARGET1;
-    float4 Albedo : SV_TARGET2;
-    float Roughness : SV_TARGET3;
+    float Roughness : SV_TARGET2;
 };
 
 PSOutput PS(VertexOut pin)
 {
     PSOutput output;
-    output.Position = float4(pin.PosW, 1.0);
-    output.Normal = float4(normalize(pin.NormalW), 0.0);
     output.Albedo = gDiffuseMap.Sample(gSampler, pin.TexC);
-    output.Roughness = 0.25f; // Из MaterialConstants
+    output.Normal = float4(normalize(pin.NormalW), 0.0);
+    output.Roughness = 0.25f;
     return output;
-}
-
-
-float4 main( float4 pos : POSITION ) : SV_POSITION
-{
-	return pos;
 }

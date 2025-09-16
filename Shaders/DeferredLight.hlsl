@@ -48,11 +48,11 @@ cbuffer cbPass : register(b1)
     Light gLights[MaxLights];
 };
 
-Texture2D gPosition : register(t0); // tN
-Texture2D gNormal : register(t1); // tN+1
-Texture2D gAlbedo : register(t2); // tN+2
-Texture2D gRoughness : register(t3); // tN+3
-Texture2D gDepth : register(t4); // tN+4
+Texture2D gAlbedo : register(t3);
+Texture2D gNormal : register(t4);
+Texture2D gRoughness : register(t5);
+Texture2D gDepth : register(t6);
+
 SamplerState gSampler : register(s0);
 
 struct VertexOut
@@ -71,17 +71,28 @@ VertexOut VS(uint vid : SV_VertexID)
 
 float4 PS(VertexOut pin) : SV_TARGET
 {
-    float3 posW = gPosition.Sample(gSampler, pin.TexC).xyz;
-    float3 normalW = normalize(gNormal.Sample(gSampler, pin.TexC).xyz);
-    float4 albedo = gAlbedo.Sample(gSampler, pin.TexC);
-    float roughness = gRoughness.Sample(gSampler, pin.TexC).x;
+    float2 texC = pin.TexC;
+    //float3 posW = gPosition.Sample(gSampler, pin.TexC).xyz;
+    float depth = gDepth.Sample(gSampler, texC).r;
+    float2 ndc = float2(texC.x * 2.0 - 1.0, (1.0 - texC.y) * 2.0 - 1.0); // NDC (flip Y для DirectX)
+    float4 viewPos = mul(float4(ndc, depth, 1.0), gInvProj);
+    viewPos.xyz /= viewPos.w; // Perspective divide
+    float3 posW = mul(viewPos, gInvView).xyz; // View -> World
+    
+    float3 normalW = normalize(gNormal.Sample(gSampler, texC).xyz);
+    float4 albedo = gAlbedo.Sample(gSampler, texC);
+    float roughness = gRoughness.Sample(gSampler, texC).x;
 
     float3 toEye = normalize(gEyePosW - posW);
+    const float shininess = 1.0f - roughness;
+    Material mat = { albedo, float3(0.01f, 0.01f, 0.01), shininess };
+    float3 shadowFactor = 1.0f;
     float3 lighting = gAmbientLight.rgb;
-    for (int i = 0; i < MaxLights; ++i)
-    {
-        // Пример освещения (нужно реализовать ComputeLighting)
-        //lighting += ComputeLighting(gLights[i], posW, normalW, toEye, albedo.rgb, roughness);
-    }
+    lighting += ComputeLighting(gLights, mat, posW, normalW, toEye, shadowFactor);
+    //for (int i = 0; i < MaxLights; ++i)
+    //{
+    //    // Пример освещения (нужно реализовать ComputeLighting)
+    //    lighting += ComputeLighting(gLights, posW, normalW, toEye, albedo.rgb, roughness);
+    //}
     return float4(lighting, 1.0);
 }

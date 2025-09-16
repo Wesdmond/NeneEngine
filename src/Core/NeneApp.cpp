@@ -391,29 +391,30 @@ void NeneApp::PopulateCommandList()
     // Reusing the command list reuses memory.
     ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
 
-    m_commandList->RSSetViewports(1, &m_viewport);
-    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+    //m_commandList->RSSetViewports(1, &m_viewport);
+    //m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
-    // Indicate a state transition on the resource usage.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    //// Indicate a state transition on the resource usage.
+    //m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+    //    D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-    // Clear the back buffer and depth buffer.
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Black, 0, nullptr);
-    m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    //// Clear the back buffer and depth buffer.
+    //m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Cyan, 0, nullptr);
+    //m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-    // Specify the buffers we are going to render to.
-    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+    //// Specify the buffers we are going to render to.
+    //m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
-    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+    //ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    //m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
+    //m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-    auto passCB = mCurrFrameResource->PassCB->Resource();
-    m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+    //auto passCB = mCurrFrameResource->PassCB->Resource();
+    //m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
 
-    DrawForward();
+    //DrawForward();
+    DrawDeffered();
 
 // UI 
     DrawUI();
@@ -443,7 +444,7 @@ void NeneApp::InitCamera()
 void NeneApp::BuildDescriptorHeaps()
 {
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-    rtvHeapDesc.NumDescriptors = 4;
+    rtvHeapDesc.NumDescriptors = 3;
     rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     rtvHeapDesc.NodeMask = 0;
@@ -494,7 +495,7 @@ bool NeneApp::LoadTexture(const std::string& filename)
     // TODO: logging std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-    hDesc.Offset((INT)mTextures.size() + 4, mCbvSrvDescriptorSize);
+    hDesc.Offset((INT)mTextures.size() + 3, mCbvSrvDescriptorSize);
 
     // Basic SRV descriptor for 2D texture (d3dx12.h)
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -649,22 +650,22 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
-            int texIndexBefore = (int)mTextures.size() + 4;
+            int texIndexBefore = (int)mTextures.size() + 3;
             if (LoadTexture(fullPath))
                 material->DiffuseSrvHeapIndex = texIndexBefore;
             else
-                material->DiffuseSrvHeapIndex = 4;
+                material->DiffuseSrvHeapIndex = 3;
 
             // TODO: Logging: std::cout << "Assigned texture index " << material->DiffuseSrvHeapIndex << " for material '" << material->Name << "'" << std::endl;
         } else
         {
-            material->DiffuseSrvHeapIndex = 4;  // If no texture - error texture than.
+            material->DiffuseSrvHeapIndex = 3;  // If no texture - error texture than.
         }
 
         if (mat->GetTexture(aiTextureType_NORMALS, 0, &texPath) == AI_SUCCESS)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
-            int texIndexBefore = (int)mTextures.size() + 4;
+            int texIndexBefore = (int)mTextures.size() + 3;
             
             if (LoadTexture(fullPath))
             {
@@ -672,27 +673,27 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
                 material->HasNormalMap = true;
             }
             else
-                material->NormalSrvHeapIndex = 4;
+                material->NormalSrvHeapIndex = 3;
         } else
         {
-            material->NormalSrvHeapIndex = 4;
+            material->NormalSrvHeapIndex = 3;
             // TODO: Logging: std::cout << "No normal map for material " << material->Name << std::endl;
         }
 
         if (mat->GetTexture(aiTextureType_DISPLACEMENT, 0, &texPath) == AI_SUCCESS)
         {
             std::string fullPath = filename.substr(0, filename.find_last_of("/\\")) + "/" + texPath.C_Str();
-            int texIndexBefore = (int)mTextures.size() + 4;
+            int texIndexBefore = (int)mTextures.size() + 3;
             if (LoadTexture(fullPath))
             {
                 material->DisplacementSrvHeapIndex = texIndexBefore;
                 material->HasDisplacementMap = true;
             }
             else
-                material->DisplacementSrvHeapIndex = 4;
+                material->DisplacementSrvHeapIndex = 3;
         } else
         {
-            material->DisplacementSrvHeapIndex = 4;
+            material->DisplacementSrvHeapIndex = 3;
             // TODO: logging: std::cout << "No displacement  map for material " << material->Name << std::endl;
         }
 
@@ -760,8 +761,11 @@ void NeneApp::BuildRootSignature()
     texTables[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // Normal
     texTables[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2); // Displacement
 
+    CD3DX12_DESCRIPTOR_RANGE gbufferTable;
+    gbufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 3); // 3 G-Buffer + 1 Depth
+
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER slotRootParameter[6];
+    CD3DX12_ROOT_PARAMETER slotRootParameter[7];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTables[0], D3D12_SHADER_VISIBILITY_PIXEL); // Diffuse
@@ -770,11 +774,12 @@ void NeneApp::BuildRootSignature()
     slotRootParameter[3].InitAsConstantBufferView(0);
     slotRootParameter[4].InitAsConstantBufferView(1);
     slotRootParameter[5].InitAsConstantBufferView(2);
+    slotRootParameter[6].InitAsDescriptorTable(1, &gbufferTable, D3D12_SHADER_VISIBILITY_ALL);
 
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(6, slotRootParameter,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(7, slotRootParameter,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1460,7 +1465,46 @@ void NeneApp::DrawForward()
 
 void NeneApp::DrawDeffered()
 {
+    // Geometry Pass
+    m_commandList->RSSetViewports(1, &m_viewport);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+    // Привязать G-Buffer
+    m_gBuffer.BindForGeometryPass(m_commandList.Get());
+
+    // Установить PSO
+    m_commandList->SetPipelineState(mPSOs["deferredGeo"].Get());
+
+    // Установить корневую сигнатуру и CBV
+    m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
+    m_commandList->SetGraphicsRootConstantBufferView(4, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+
+
+    // Рендеринг объектов
+    DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
+
+    // Переключить G-Buffer в состояние для чтения
+    m_gBuffer.BindForLightingPass(m_commandList.Get());
+
+    // Lighting Pass
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
+
+    m_commandList->SetPipelineState(mPSOs["deferredLight"].Get());
+    auto srvHandles = m_gBuffer.GetSRVs();
+    m_commandList->SetGraphicsRootDescriptorTable(6, srvHandles[0]); // G-Buffer SRV (индекс 3 в root signature)
+
+    // Рендеринг полноэкранного квадрата
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_commandList->DrawInstanced(3, 1, 0, 0);
+
+    // Вернуть G-Buffer в состояние render target
+    m_gBuffer.Unbind(m_commandList.Get());
 }
 
 void NeneApp::DrawUI()
