@@ -19,7 +19,7 @@ int NeneEngine::OnWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE)
         {
-            m_isPaused = true;
+            //m_isPaused = true; // Dont work correct with ImGui viewports
             m_timer.Stop();
         }
         else

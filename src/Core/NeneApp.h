@@ -6,6 +6,7 @@
 #include "Inputs/InputDevice.h"
 #include <SimpleMath.h>
 #include "FrameResource.h"
+#include "GBuffer.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -95,6 +96,9 @@ private:
     void BuildMaterials();
     void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems);
+    void DrawForward();
+    void DrawDeffered();
+    void DrawUI();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -111,6 +115,8 @@ private:
     Camera m_camera;
     UIManager m_uiManager;
     std::shared_ptr<InputDevice> m_inputDevice;
+    GBuffer m_gBuffer;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_rtvGBufferHeap;
 
 #pragma region App Resources
     std::vector<std::unique_ptr<FrameResource>> mFrameResources;
