@@ -3,6 +3,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <random>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -34,6 +35,7 @@ bool NeneApp::Initialize()
     LoadTextures();
     BuildMaterials();
     BuildBoxGeometry();
+    BuildManyBoxes(10000);
     BuildDisplacementTestGeometry();
     BuildPlane(10.f, 10.f, 8, 8, "highMountain", "mountain", CreateTransformMatrix(-11, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     BuildPlane(10.f, 10.f, 1, 1, "lowMountain", "mountain", CreateTransformMatrix(0, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
@@ -70,6 +72,11 @@ bool NeneApp::Initialize()
 void NeneApp::OnResize()
 {
     DX12App::OnResize();
+
+    // Invalidate ImGui's device objects (releases old RTVs/views tied to back buffers)
+    ImGui_ImplDX12_InvalidateDeviceObjects();
+    // Recreate ImGui's device objects immediately (binds to new back buffers)
+    ImGui_ImplDX12_CreateDeviceObjects();
 
     m_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
@@ -1068,6 +1075,140 @@ void NeneApp::BuildBoxGeometry()
     geo->DrawArgs["box"] = boxSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildManyBoxes(UINT count)
+{
+    // Ensure box geometry exists
+    if (mGeometries.find("boxGeo") == mGeometries.end())
+    {
+        BuildBoxGeometry();
+    }
+
+    // Create low and high LOD geometries for boxes
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData boxLow = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0); // Low detail (no subdivisions)
+    GeometryGenerator::MeshData boxHigh = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 5); // High detail (more subdivisions)
+
+    // Create low LOD geometry
+    SubmeshGeometry boxLowSubmesh;
+    boxLowSubmesh.IndexCount = (UINT)boxLow.Indices32.size();
+    boxLowSubmesh.StartIndexLocation = 0;
+    boxLowSubmesh.BaseVertexLocation = 0;
+    std::vector<Vertex> verticesLow(boxLow.Vertices.size());
+    for (size_t i = 0; i < boxLow.Vertices.size(); ++i)
+    {
+        verticesLow[i].Pos = boxLow.Vertices[i].Position;
+        verticesLow[i].Normal = boxLow.Vertices[i].Normal;
+        verticesLow[i].TexC = boxLow.Vertices[i].TexC;
+    }
+    boxLowSubmesh.Bounds = ComputeBounds(verticesLow);
+    std::vector<std::uint16_t> indicesLow = boxLow.GetIndices16();
+    const UINT vbByteSizeLow = (UINT)verticesLow.size() * sizeof(Vertex);
+    const UINT ibByteSizeLow = (UINT)indicesLow.size() * sizeof(std::uint16_t);
+    auto geoLow = std::make_unique<MeshGeometry>();
+    geoLow->Name = "boxGeoLow";
+    ThrowIfFailed(D3DCreateBlob(vbByteSizeLow, &geoLow->VertexBufferCPU));
+    CopyMemory(geoLow->VertexBufferCPU->GetBufferPointer(), verticesLow.data(), vbByteSizeLow);
+    ThrowIfFailed(D3DCreateBlob(ibByteSizeLow, &geoLow->IndexBufferCPU));
+    CopyMemory(geoLow->IndexBufferCPU->GetBufferPointer(), indicesLow.data(), ibByteSizeLow);
+    geoLow->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), verticesLow.data(), vbByteSizeLow, geoLow->VertexBufferUploader);
+    geoLow->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indicesLow.data(), ibByteSizeLow, geoLow->IndexBufferUploader);
+    geoLow->VertexByteStride = sizeof(Vertex);
+    geoLow->VertexBufferByteSize = vbByteSizeLow;
+    geoLow->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geoLow->IndexBufferByteSize = ibByteSizeLow;
+    geoLow->DrawArgs["boxLow"] = boxLowSubmesh;
+    mGeometries[geoLow->Name] = std::move(geoLow);
+
+    // Create high LOD geometry
+    SubmeshGeometry boxHighSubmesh;
+    boxHighSubmesh.IndexCount = (UINT)boxHigh.Indices32.size();
+    boxHighSubmesh.StartIndexLocation = 0;
+    boxHighSubmesh.BaseVertexLocation = 0;
+    std::vector<Vertex> verticesHigh(boxHigh.Vertices.size());
+    for (size_t i = 0; i < boxHigh.Vertices.size(); ++i)
+    {
+        verticesHigh[i].Pos = boxHigh.Vertices[i].Position;
+        verticesHigh[i].Normal = boxHigh.Vertices[i].Normal;
+        verticesHigh[i].TexC = boxHigh.Vertices[i].TexC;
+    }
+    boxHighSubmesh.Bounds = ComputeBounds(verticesHigh);
+    std::vector<std::uint16_t> indicesHigh = boxHigh.GetIndices16();
+    const UINT vbByteSizeHigh = (UINT)verticesHigh.size() * sizeof(Vertex);
+    const UINT ibByteSizeHigh = (UINT)indicesHigh.size() * sizeof(std::uint16_t);
+    auto geoHigh = std::make_unique<MeshGeometry>();
+    geoHigh->Name = "boxGeoHigh";
+    ThrowIfFailed(D3DCreateBlob(vbByteSizeHigh, &geoHigh->VertexBufferCPU));
+    CopyMemory(geoHigh->VertexBufferCPU->GetBufferPointer(), verticesHigh.data(), vbByteSizeHigh);
+    ThrowIfFailed(D3DCreateBlob(ibByteSizeHigh, &geoHigh->IndexBufferCPU));
+    CopyMemory(geoHigh->IndexBufferCPU->GetBufferPointer(), indicesHigh.data(), ibByteSizeHigh);
+    geoHigh->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), verticesHigh.data(), vbByteSizeHigh, geoHigh->VertexBufferUploader);
+    geoHigh->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indicesHigh.data(), ibByteSizeHigh, geoHigh->IndexBufferUploader);
+    geoHigh->VertexByteStride = sizeof(Vertex);
+    geoHigh->VertexBufferByteSize = vbByteSizeHigh;
+    geoHigh->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geoHigh->IndexBufferByteSize = ibByteSizeHigh;
+    geoHigh->DrawArgs["boxHigh"] = boxHighSubmesh;
+    mGeometries[geoHigh->Name] = std::move(geoHigh);
+
+    // Ensure woodCrate material exists
+    if (mMaterials.find("woodCrate") == mMaterials.end())
+    {
+        auto mat = std::make_unique<Material>();
+        mat->Name = "woodCrate";
+        mat->MatCBIndex = (int)mMaterials.size();
+        mat->DiffuseSrvHeapIndex = (int)mTextures.size();
+        LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
+        mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+        mat->Roughness = 0.2f;
+        mMaterials["woodCrate"] = std::move(mat);
+    }
+
+    // Random number generation for placement and scale
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> posDist(-100.0f, 100.0f); // Large area for culling test
+    std::uniform_real_distribution<float> scaleDist(0.5f, 2.0f);     // Random scale for variety
+    std::uniform_real_distribution<float> rotDist(-XM_PI, XM_PI);    // Random rotation for visual complexity
+
+    // Create 'count' boxes with randomized positions, scales, and rotations
+    for (UINT i = 0; i < count; ++i)
+    {
+        auto boxRitem = std::make_shared<RenderItem>();
+        boxRitem->Name = "Box_" + std::to_string(i);
+        boxRitem->ObjCBIndex = (int)mAllRitems.size();
+        boxRitem->Mat = mMaterials["woodCrate"].get();
+
+        // Random transform
+        float scale = scaleDist(gen);
+        float rotY = rotDist(gen);
+        Matrix world = Matrix::CreateScale(scale) *
+            Matrix::CreateRotationY(rotY) *
+            Matrix::CreateTranslation(posDist(gen), posDist(gen), posDist(gen));
+        boxRitem->World = world;
+
+        // Assign geometries for LOD
+        boxRitem->Geo = mGeometries["boxGeo"].get();
+        boxRitem->GeoLow = mGeometries["boxGeoLow"].get();
+        boxRitem->GeoHigh = mGeometries["boxGeoHigh"].get();
+        boxRitem->CurrentGeo = boxRitem->Geo;
+        boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
+        boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
+        boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+        boxRitem->SelectedIndexCount = boxRitem->IndexCount;
+        boxRitem->SelectedStartIndexLocation = boxRitem->StartIndexLocation;
+        boxRitem->SelectedBaseVertexLocation = boxRitem->BaseVertexLocation;
+        boxRitem->UseLOD = true;
+        boxRitem->LODThreshold = 50.0f;
+        boxRitem->Visible = true;
+
+        mAllRitems.push_back(std::move(boxRitem));
+    }
+
+    std::cout << "Created " << count << " box render items with randomized positions, scales, and LOD." << std::endl;
 }
 
 void NeneApp::BuildDisplacementTestGeometry()

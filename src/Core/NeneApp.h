@@ -86,6 +86,7 @@ private:
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
+    void BuildManyBoxes(UINT count = 1000);
     void BuildDisplacementTestGeometry();
     void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform, D3D12_PRIMITIVE_TOPOLOGY type);
     void BuildPSOs();
