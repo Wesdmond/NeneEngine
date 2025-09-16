@@ -45,6 +45,7 @@ bool NeneApp::Initialize()
     //BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     //BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -0.f, 0.f));
+    //LoadObjModel("assets/hangar/hangar.obj", CreateTransformMatrix(0, 0, 0));
     //BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -204,7 +205,7 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.FarZ = m_camera.GetFarZ();
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
-    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.25f, 1.0f };
     mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
     mMainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
     mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
@@ -395,8 +396,8 @@ void NeneApp::PopulateCommandList()
     //m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
     //// Indicate a state transition on the resource usage.
-    //m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-    //    D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     //// Clear the back buffer and depth buffer.
     //m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Cyan, 0, nullptr);
@@ -1231,11 +1232,10 @@ void NeneApp::BuildPSOs()
     deferredGeoPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     deferredGeoPsoDesc.SampleMask = UINT_MAX;
     deferredGeoPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    deferredGeoPsoDesc.NumRenderTargets = 4;
-    deferredGeoPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT; // Position
-    deferredGeoPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT; // Normal
-    deferredGeoPsoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;     // Albedo
-    deferredGeoPsoDesc.RTVFormats[3] = DXGI_FORMAT_R32_FLOAT;          // Roughness
+    deferredGeoPsoDesc.NumRenderTargets = 3;
+    deferredGeoPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;      // Position
+    deferredGeoPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;  // Normal
+    deferredGeoPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32_FLOAT;           // Roughness
     deferredGeoPsoDesc.DSVFormat = m_depthStencilFormat;
     deferredGeoPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
     deferredGeoPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
@@ -1465,6 +1465,7 @@ void NeneApp::DrawForward()
 
 void NeneApp::DrawDeffered()
 {
+
     // Geometry Pass
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -1472,21 +1473,16 @@ void NeneApp::DrawDeffered()
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
     m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    // Привязать G-Buffer
     m_gBuffer.BindForGeometryPass(m_commandList.Get());
 
-    // Установить PSO
     m_commandList->SetPipelineState(mPSOs["deferredGeo"].Get());
 
-    // Установить корневую сигнатуру и CBV
     m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
     m_commandList->SetGraphicsRootConstantBufferView(4, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
 
-    // Рендеринг объектов
     DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
 
-    // Переключить G-Buffer в состояние для чтения
     m_gBuffer.BindForLightingPass(m_commandList.Get());
 
     // Lighting Pass
@@ -1495,15 +1491,14 @@ void NeneApp::DrawDeffered()
 
     m_commandList->SetPipelineState(mPSOs["deferredLight"].Get());
     auto srvHandles = m_gBuffer.GetSRVs();
-    m_commandList->SetGraphicsRootDescriptorTable(6, srvHandles[0]); // G-Buffer SRV (индекс 3 в root signature)
+    m_commandList->SetGraphicsRootDescriptorTable(6, srvHandles[0]);
 
-    // Рендеринг полноэкранного квадрата
+    // Quad rendering
     m_commandList->IASetVertexBuffers(0, 0, nullptr);
     m_commandList->IASetIndexBuffer(nullptr);
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_commandList->DrawInstanced(3, 1, 0, 0);
 
-    // Вернуть G-Buffer в состояние render target
     m_gBuffer.Unbind(m_commandList.Get());
 }
 

@@ -11,12 +11,6 @@
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-enum GeoType {
-    Basic = 0,
-    LOD_low = 1,
-    LOD_high = 2
-};
-
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
 struct RenderItem

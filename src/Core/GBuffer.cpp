@@ -27,17 +27,26 @@ void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeapStart);
 
     D3D12_CLEAR_VALUE optClear;
-    optClear.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
     optClear.DepthStencil.Depth = 1.0f;
     optClear.DepthStencil.Stencil = 0;
     for (int i = 0; i < 3; ++i) {
         optClear.Format = gbufferFormats[i];
+        // Clear values
+        if (i == 0) {  // Albedo: Black
+            optClear.Color[0] = optClear.Color[1] = optClear.Color[2] = 0.0f; optClear.Color[3] = 1.0f;
+        }
+        else if (i == 1) {  // Normal: (0,0,1,0) — default up
+            optClear.Color[0] = optClear.Color[1] = 0.0f; optClear.Color[2] = 1.0f; optClear.Color[3] = 0.0f;
+        }
+        else {  // Roughness: 0.5 (neutral)
+            optClear.Color[0] = 0.5f;
+        }
         ThrowIfFailed(device->CreateCommittedResource(  
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Tex2D(gbufferFormats[i], width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET),
             D3D12_RESOURCE_STATE_RENDER_TARGET,
-            nullptr,
+            &optClear,
             IID_PPV_ARGS(&m_gbufferTextures[i])));
 
         // RTV в m_gbufferRtvHeap

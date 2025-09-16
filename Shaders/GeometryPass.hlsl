@@ -2,7 +2,13 @@
 #include "LightingUtil.hlsl"
 
 Texture2D gDiffuseMap : register(t0);
-SamplerState gSampler : register(s0);
+
+SamplerState gsamPointWrap : register(s0);
+SamplerState gsamPointClamp : register(s1);
+SamplerState gsamLinearWrap : register(s2);
+SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
 
 // Constant data that varies per frame.
 cbuffer cbPerObject : register(b0)
@@ -75,7 +81,7 @@ struct PSOutput
 PSOutput PS(VertexOut pin)
 {
     PSOutput output;
-    output.Albedo = gDiffuseMap.Sample(gSampler, pin.TexC);
+    output.Albedo = gDiffuseMap.Sample(gsamPointWrap, pin.TexC);
     output.Normal = float4(normalize(pin.NormalW), 0.0);
     output.Roughness = 0.25f;
     return output;

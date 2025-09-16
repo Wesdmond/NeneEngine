@@ -53,7 +53,12 @@ Texture2D gNormal : register(t4);
 Texture2D gRoughness : register(t5);
 Texture2D gDepth : register(t6);
 
-SamplerState gSampler : register(s0);
+SamplerState gsamPointWrap : register(s0);
+SamplerState gsamPointClamp : register(s1);
+SamplerState gsamLinearWrap : register(s2);
+SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
 
 struct VertexOut
 {
@@ -69,19 +74,23 @@ VertexOut VS(uint vid : SV_VertexID)
     return vout;
 }
 
+float3 ComputeWorldlPos(float2 uv, float depth)
+{        
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0); // Flip Y для DirectX
+    float4 clipPos = float4(ndc, depth, 1.0);
+    float4 worldPos = mul(clipPos, gInvViewProj); // Прямо в world space
+    return worldPos.xyz / worldPos.w;
+}
+
 float4 PS(VertexOut pin) : SV_TARGET
 {
     float2 texC = pin.TexC;
-    //float3 posW = gPosition.Sample(gSampler, pin.TexC).xyz;
-    float depth = gDepth.Sample(gSampler, texC).r;
-    float2 ndc = float2(texC.x * 2.0 - 1.0, (1.0 - texC.y) * 2.0 - 1.0); // NDC (flip Y для DirectX)
-    float4 viewPos = mul(float4(ndc, depth, 1.0), gInvProj);
-    viewPos.xyz /= viewPos.w; // Perspective divide
-    float3 posW = mul(viewPos, gInvView).xyz; // View -> World
-    
-    float3 normalW = normalize(gNormal.Sample(gSampler, texC).xyz);
-    float4 albedo = gAlbedo.Sample(gSampler, texC);
-    float roughness = gRoughness.Sample(gSampler, texC).x;
+
+    float depth = gDepth.Load(float3(texC, 0)).r;
+    float3 posW = ComputeWorldlPos(texC, depth);
+    float3 normalW = normalize(gNormal.Sample(gsamPointWrap, texC).xyz);
+    float4 albedo = gAlbedo.Sample(gsamPointWrap, texC);
+    float roughness = gRoughness.Sample(gsamPointWrap, texC).x;
 
     float3 toEye = normalize(gEyePosW - posW);
     const float shininess = 1.0f - roughness;
