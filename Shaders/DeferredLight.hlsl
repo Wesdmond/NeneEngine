@@ -17,6 +17,9 @@ cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
+    uint gLightIndex;
+    uint gIsDirectional;
+    float gPad[2];
 };
 
 // Constant data that varies per material.
@@ -68,26 +71,24 @@ struct VertexOut
 {
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
-    uint InstanceID : SV_InstanceID;
 };
 
-VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
+VertexOut VS(VertexIn vin)
 {
     VertexOut vout;
 
-    if (instanceID < NUM_DIR_LIGHTS)
+    if (gIsDirectional == 1)
     {
         // For directional lights (quad in NDC)
         vout.PosH = float4(vin.PosL, 1.0f); // Already in NDC
-        //vout.PosH.y *= -1;
     }
     else
     {
         // For point/spot lights (box geometry)
         float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+        //vout.PosW = posW;
         vout.PosH = mul(posW, gViewProj);
     }
-    vout.InstanceID = instanceID;
     vout.TexC = vin.TexC;
     return vout;
 }
@@ -102,8 +103,9 @@ float3 ComputeWorldlPos(float2 uv, float depth)
 
 float4 PS(VertexOut pin) : SV_TARGET
 {
-    uint lightIndex = pin.InstanceID;
-    float2 texC = pin.PosH.xy * gInvRenderTargetSize;
+    uint lightIndex = gLightIndex; 
+    float2 texC;
+    texC = pin.PosH.xy * gInvRenderTargetSize;
     float depth = gDepth.Load(float3(texC, 0)).r;
     float3 posW = ComputeWorldlPos(texC, depth);
     float3 normalW = normalize(gNormal.Sample(gsamPointWrap, texC).xyz);
@@ -114,7 +116,7 @@ float4 PS(VertexOut pin) : SV_TARGET
     const float shininess = 1.0f - roughness;
     Material mat = { albedo, float3(0.01f, 0.01f, 0.01), shininess };
     float3 shadowFactor = 1.0f;
-    ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
+    //ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
     //float3 lighting = gAmbientLight.rgb * albedo.rgb;
     //float3 lighting = ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
     float3 lighting = 0.0f;
@@ -129,12 +131,7 @@ float4 PS(VertexOut pin) : SV_TARGET
     }
     else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
     {
-        float3 lightVec = gLights[lightIndex].Position - posW;
-        float d = length(lightVec);
-        if (d <= gLights[lightIndex].FalloffEnd)
-        {
-            lighting += ComputePointLight(gLights[lightIndex], mat, posW, normalW, toEye);
-        }
+        lighting += ComputePointLight(gLights[lightIndex], mat, posW, normalW, toEye);
     }
     else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
     {

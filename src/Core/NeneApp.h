@@ -11,8 +11,7 @@
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-// Lightweight structure stores parameters to draw a shape.  This will
-// vary from app-to-app.
+// Lightweight structure stores parameters to draw a shape.
 struct RenderItem
 {
 	RenderItem() = default;
@@ -39,7 +38,12 @@ struct RenderItem
 	MeshGeometry* GeoHigh = nullptr;
     MeshGeometry* CurrentGeo = nullptr;
 
+    // light RIs
+    UINT LightIndex = UINT_MAX;  // 0=dir, 1=point, 2=spot
+    bool IsDirectional = false;
 
+    // Choose PSO
+    std::string PSOType = "Opaque";
     // Primitive topology.
     D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -80,16 +84,24 @@ private:
     void BuildRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
-    void BuildBoxGeometry();
+
+#pragma region geometry
+    void BuildBoxLightGeometry();
+    void BuildSphereLightGeometry();
+    void BuildQuadLightGeometry();
+    void BuildCylinderLightGeometry();
     void BuildLightGeometries();
+    void BuildBoxGeometry();
     void BuildManyBoxes(UINT count = 1000);
     void BuildDisplacementTestGeometry();
     void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform, D3D12_PRIMITIVE_TOPOLOGY type);
+    void BuildRenderItems();
+#pragma endregion
+
     void BuildPSOs();
 	void BuildTextureSRVs();
     void BuildFrameResources();
     void BuildMaterials();
-    void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems);
     void DrawForward();
     void DrawDeffered();
@@ -168,7 +180,7 @@ private:
     float m_mouseSensitivity = 0.005f;
 
     // Inputs
-    DirectX::SimpleMath::Vector2 m_mousePos;
-    DirectX::SimpleMath::Vector2 m_mouseDelta;
+    DirectX::SimpleMath::Vector2 m_mousePos = DirectX::SimpleMath::Vector2::Zero;
+    DirectX::SimpleMath::Vector2 m_mouseDelta = DirectX::SimpleMath::Vector2::Zero;
     float m_mouseWheelDelta;
 };

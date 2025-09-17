@@ -15,6 +15,9 @@ cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
+    uint gLightIndex;
+    uint gIsDirectional;
+    float gPad[2];
 };
 
 // Constant data that varies per material.

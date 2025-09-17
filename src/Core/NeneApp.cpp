@@ -82,6 +82,8 @@ bool NeneApp::Initialize()
 void NeneApp::OnResize()
 {
     DX12App::OnResize();
+    if (m_dsvGBufferHeap)
+        m_gBuffer.Resize(m_device.Get(), m_clientWidth, m_clientHeight);
 
     // Invalidate ImGui's device objects (releases old RTVs/views tied to back buffers)
     ImGui_ImplDX12_InvalidateDeviceObjects();
@@ -128,7 +130,7 @@ void NeneApp::UpdateCamera(const GameTimer& gt)
     XMStoreFloat4x4(&mView, m_camera.GetView());
     XMStoreFloat4x4(&mProj, m_camera.GetProj());
 
-    // std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
+    // TODO: Add debug: std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
 }
 
 void NeneApp::AnimateMaterials(const GameTimer& gt)
@@ -151,6 +153,29 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
 
+            currObjectCB->CopyData(e->ObjCBIndex, objConstants);
+
+            // Next FrameResource need to be updated too.
+            e->NumFramesDirty--;
+        }
+    }
+
+    for (auto& e : mLightRitems)
+    {
+        // Only update the cbuffer data if the constants have changed.  
+        // This needs to be tracked per frame resource.
+        if (e->NumFramesDirty > 0)
+        {
+            XMMATRIX world = XMLoadFloat4x4(&e->World);
+            XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
+
+            ObjectConstants objConstants;
+            XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+            XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+            if (e->LightIndex != UINT_MAX) {
+                objConstants.LightIndex = e->LightIndex;
+                objConstants.IsDirectional = e->IsDirectional ? 1u : 0u;
+            }
             currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
             // Next FrameResource need to be updated too.
@@ -215,26 +240,20 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     // Инициализация источников света
      // Инициализация источников света
     // Направленный свет (индексы 0–2)
-    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-    mMainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
-    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mMainPassCB.Lights[0].Direction = { 0.0f, -1.0f, 0.0f };
+    mMainPassCB.Lights[0].Strength = { 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[1].Position = { 0.0f, 1.0f, 0.0f }; // Точечный свет
+    mMainPassCB.Lights[1].FalloffStart = 20.0f;
+    mMainPassCB.Lights[1].FalloffEnd = 200.0f;
+    mMainPassCB.Lights[1].Strength = { 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[2].Position = { 10.0f, 10.0f, -5.0f }; // Прожекторный свет
+    mMainPassCB.Lights[2].FalloffStart = 1.0f;
+    mMainPassCB.Lights[2].FalloffEnd = 20.0f;
     mMainPassCB.Lights[2].Direction = { 0.0f, -1.0f, 0.0f };
-    mMainPassCB.Lights[2].Strength = { 0.3f, 0.3f, 0.3f };
-
-    // Точечный свет (индекс 3)
-    mMainPassCB.Lights[3].Position = { 0.0f, 5.0f, 0.0f };
-    mMainPassCB.Lights[3].Strength = { 1.0f, 1.0f, 1.0f };
-    mMainPassCB.Lights[3].FalloffStart = 1.0f;
-    mMainPassCB.Lights[3].FalloffEnd = 10.0f;
-
-    // Прожектор (индекс 4)
-    mMainPassCB.Lights[4].Position = { 5.0f, 5.0f, 0.0f };
-    mMainPassCB.Lights[4].Direction = { -0.57735f, -0.57735f, 0.57735f };
-    mMainPassCB.Lights[4].Strength = { 0.8f, 0.8f, 0.8f };
-    mMainPassCB.Lights[4].FalloffStart = 1.0f;
-    mMainPassCB.Lights[4].FalloffEnd = 8.0f;
-    mMainPassCB.Lights[4].SpotPower = 10.0f;
+    mMainPassCB.Lights[2].SpotPower = 10.0f;
+    mMainPassCB.Lights[2].Strength = { 1.0f, 1.0f, 1.0f };
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -413,7 +432,7 @@ void NeneApp::PopulateCommandList()
 
     // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
     // Reusing the command list reuses memory.
-    ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
+    ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), mPSOs["deferredGeo"].Get()));
 
     //m_commandList->RSSetViewports(1, &m_viewport);
     //m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -896,78 +915,212 @@ void NeneApp::BuildShadersAndInputLayout()
     };
 }
 
-void NeneApp::BuildLightGeometries()
+void NeneApp::BuildBoxLightGeometry()
 {
     GeometryGenerator geoGen;
-    // AABB для точечных источников света (куб)
-    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0);
-    std::vector<Vertex> boxVertices(box.Vertices.size());
+    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+    boxSubmesh.StartIndexLocation = 0;
+    boxSubmesh.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(box.Vertices.size());
+
     for (size_t i = 0; i < box.Vertices.size(); ++i)
     {
-        boxVertices[i].Pos = box.Vertices[i].Position;
-        boxVertices[i].Normal = box.Vertices[i].Normal;
-        boxVertices[i].TexC = box.Vertices[i].TexC;
+        vertices[i].Pos = box.Vertices[i].Position;
+        vertices[i].Normal = box.Vertices[i].Normal;
+        vertices[i].TexC = box.Vertices[i].TexC;
     }
-    std::vector<std::uint16_t> boxIndices = box.GetIndices16();
+    boxSubmesh.Bounds = ComputeBounds(vertices);
 
-    // Полноэкранный квад для направленных источников света
-    GeometryGenerator::MeshData quad = geoGen.CreateQuad(-1.0f, 1.0f, 2.0f, 2.0f, 0.0f);
-    std::vector<Vertex> quadVertices(quad.Vertices.size());
-    for (size_t i = 0; i < quad.Vertices.size(); ++i)
+    std::vector<std::uint16_t> indices = box.GetIndices16();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "lightBox";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["lightBox"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildSphereLightGeometry()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData box = geoGen.CreateSphere(1.0f, 32, 16);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+    boxSubmesh.StartIndexLocation = 0;
+    boxSubmesh.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(box.Vertices.size());
+
+    for (size_t i = 0; i < box.Vertices.size(); ++i)
     {
-        quadVertices[i].Pos = quad.Vertices[i].Position;
-        quadVertices[i].Normal = quad.Vertices[i].Normal;
-        quadVertices[i].TexC = quad.Vertices[i].TexC;
+        vertices[i].Pos = box.Vertices[i].Position;
+        vertices[i].Normal = box.Vertices[i].Normal;
+        vertices[i].TexC = box.Vertices[i].TexC;
     }
-    std::vector<std::uint16_t> quadIndices = quad.GetIndices16();
+    boxSubmesh.Bounds = ComputeBounds(vertices);
 
-    // Загрузка геометрий в буферы
-    auto boxGeo = std::make_unique<MeshGeometry>();
-    boxGeo->Name = "lightBox";
-    D3D12_SUBRESOURCE_DATA vertexData = {};
-    vertexData.pData = boxVertices.data();
-    vertexData.RowPitch = boxVertices.size() * sizeof(Vertex);
-    vertexData.SlicePitch = vertexData.RowPitch;
-    boxGeo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), boxVertices.data(), vertexData.RowPitch, boxGeo->VertexBufferUploader);
-    boxGeo->VertexByteStride = sizeof(Vertex);
-    boxGeo->VertexBufferByteSize = vertexData.RowPitch;
+    std::vector<std::uint16_t> indices = box.GetIndices16();
 
-    D3D12_SUBRESOURCE_DATA indexData = {};
-    indexData.pData = boxIndices.data();
-    indexData.RowPitch = boxIndices.size() * sizeof(std::uint16_t);
-    indexData.SlicePitch = indexData.RowPitch;
-    boxGeo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), boxIndices.data(), indexData.RowPitch, boxGeo->IndexBufferUploader);
-    boxGeo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    boxGeo->IndexBufferByteSize = indexData.RowPitch;
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
-    SubmeshGeometry submesh;
-    submesh.IndexCount = (UINT)boxIndices.size();
-    submesh.StartIndexLocation = 0;
-    submesh.BaseVertexLocation = 0;
-    boxGeo->DrawArgs["box"] = submesh;
-    mGeometries["lightBox"] = std::move(boxGeo);
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "lightSphere";
 
-    auto quadGeo = std::make_unique<MeshGeometry>();
-    quadGeo->Name = "lightQuad";
-    vertexData.pData = quadVertices.data();
-    vertexData.RowPitch = quadVertices.size() * sizeof(Vertex);
-    vertexData.SlicePitch = vertexData.RowPitch;
-    quadGeo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), quadVertices.data(), vertexData.RowPitch, quadGeo->VertexBufferUploader);
-    quadGeo->VertexByteStride = sizeof(Vertex);
-    quadGeo->VertexBufferByteSize = vertexData.RowPitch;
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
 
-    indexData.pData = quadIndices.data();
-    indexData.RowPitch = quadIndices.size() * sizeof(std::uint16_t);
-    indexData.SlicePitch = indexData.RowPitch;
-    quadGeo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), quadIndices.data(), indexData.RowPitch, quadGeo->IndexBufferUploader);
-    quadGeo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    quadGeo->IndexBufferByteSize = indexData.RowPitch;
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
-    submesh.IndexCount = (UINT)quadIndices.size();
-    submesh.StartIndexLocation = 0;
-    submesh.BaseVertexLocation = 0;
-    quadGeo->DrawArgs["quad"] = submesh;
-    mGeometries["lightQuad"] = std::move(quadGeo);
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["lightSphere"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildQuadLightGeometry()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData box = geoGen.CreateQuad(-1.0f, 1.0f, 2.0f, 2.0f, 0.0f);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+    boxSubmesh.StartIndexLocation = 0;
+    boxSubmesh.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(box.Vertices.size());
+
+    for (size_t i = 0; i < box.Vertices.size(); ++i)
+    {
+        vertices[i].Pos = box.Vertices[i].Position;
+        vertices[i].Normal = box.Vertices[i].Normal;
+        vertices[i].TexC = box.Vertices[i].TexC;
+    }
+    boxSubmesh.Bounds = ComputeBounds(vertices);
+
+    std::vector<std::uint16_t> indices = box.GetIndices16();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "lightQuad";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["lightQuad"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildCylinderLightGeometry()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData box = geoGen.CreateCylinder(1.0f, 0.0f, 2.0f, 32, 1);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+    boxSubmesh.StartIndexLocation = 0;
+    boxSubmesh.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(box.Vertices.size());
+
+    for (size_t i = 0; i < box.Vertices.size(); ++i)
+    {
+        vertices[i].Pos = box.Vertices[i].Position;
+        vertices[i].Normal = box.Vertices[i].Normal;
+        vertices[i].TexC = box.Vertices[i].TexC;
+    }
+    boxSubmesh.Bounds = ComputeBounds(vertices);
+
+    std::vector<std::uint16_t> indices = box.GetIndices16();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "lightCylinder";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["lightCylinder"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildLightGeometries()
+{
+    BuildBoxLightGeometry();
+    BuildSphereLightGeometry();
+    BuildQuadLightGeometry();
+    BuildCylinderLightGeometry();
 }
 
 void NeneApp::BuildBoxGeometry()
@@ -1381,13 +1534,21 @@ void NeneApp::BuildPSOs()
         { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredLightPsoDesc = {};
-    deferredLightPsoDesc.InputLayout = { lightInputLayout, _countof(lightInputLayout) };
-    deferredLightPsoDesc.pRootSignature = m_defferedRootSignature.Get();
-    deferredLightPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["deferredLightVS"]->GetBufferPointer()), mShaders["deferredLightVS"]->GetBufferSize() };
-    deferredLightPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["deferredLightPS"]->GetBufferPointer()), mShaders["deferredLightPS"]->GetBufferSize() };
-    deferredLightPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    deferredLightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    // Deferred light PSO: No depth test (for dir quad, full-screen)
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredLightOffDesc = {};
+    deferredLightOffDesc.InputLayout = { lightInputLayout, _countof(lightInputLayout) };
+    deferredLightOffDesc.VS = { reinterpret_cast<BYTE*>(mShaders["deferredLightVS"]->GetBufferPointer()), mShaders["deferredLightVS"]->GetBufferSize() };
+    deferredLightOffDesc.PS = { reinterpret_cast<BYTE*>(mShaders["deferredLightPS"]->GetBufferPointer()), mShaders["deferredLightPS"]->GetBufferSize() };  // Assuming DeferredPS is your lighting shader
+    deferredLightOffDesc.pRootSignature = m_defferedRootSignature.Get();  // Your deferred root sig
+    deferredLightOffDesc.RTVFormats[0] = m_backBufferFormat;
+    deferredLightOffDesc.NumRenderTargets = 1;
+    deferredLightOffDesc.SampleDesc.Count = 1;
+    deferredLightOffDesc.SampleMask = UINT_MAX;
+    deferredLightOffDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    deferredLightOffDesc.DSVFormat = m_depthStencilFormat;
+    deferredLightOffDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    deferredLightOffDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;  // For full-screen
+    //deferredLightOffDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 
     D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
     rtBlendDesc.BlendEnable = TRUE;
@@ -1404,18 +1565,33 @@ void NeneApp::BuildPSOs()
     blendDesc.AlphaToCoverageEnable = FALSE;
     blendDesc.IndependentBlendEnable = FALSE;
     blendDesc.RenderTarget[0] = rtBlendDesc;
-    deferredLightPsoDesc.BlendState = blendDesc;
-    deferredLightPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    deferredLightPsoDesc.DepthStencilState.DepthEnable = FALSE;
-    deferredLightPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    deferredLightPsoDesc.SampleMask = UINT_MAX;
-    deferredLightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    deferredLightPsoDesc.NumRenderTargets = 1;
-    deferredLightPsoDesc.RTVFormats[0] = m_backBufferFormat;
-    deferredLightPsoDesc.DSVFormat = m_depthStencilFormat;
-    deferredLightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-    deferredLightPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&deferredLightPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLight"])));
+    deferredLightOffDesc.BlendState = blendDesc;
+    //deferredLightOffDesc.BlendState.RenderTarget[0].BlendEnable = true;  // No blend for dir (base)
+    //deferredLightOffDesc.BlendState.RenderTarget[0].LogicOpEnable = FALSE;
+    //deferredLightOffDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;								// src * 1
+    //deferredLightOffDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;							// dest * 1
+    //deferredLightOffDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    //deferredLightOffDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    //deferredLightOffDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    //deferredLightOffDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    //deferredLightOffDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;	// RGB + A
+    deferredLightOffDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    deferredLightOffDesc.DepthStencilState.DepthEnable = FALSE;  // No depth for full-screen
+    deferredLightOffDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&deferredLightOffDesc, IID_PPV_ARGS(&mPSOs["DeferredLightDepthOff"])));
+
+    // Deferred light PSO: Depth test ON, no write, additive blend (for point/spot volumes)
+    auto deferredLightOnDesc = deferredLightOffDesc;
+    deferredLightOnDesc.DepthStencilState.DepthEnable = TRUE;
+    deferredLightOnDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    deferredLightOnDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;  // Don't alter G-depth
+    deferredLightOnDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;  // Render inside volume if camera in it
+    deferredLightOnDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&deferredLightOnDesc, IID_PPV_ARGS(&mPSOs["DeferredLightDepthOn"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC lightQUADPsoDesc = deferredLightOffDesc;
+    lightQUADPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&lightQUADPsoDesc, IID_PPV_ARGS(&mPSOs["lightQUADPsoDesc"])));
    
 }
 
@@ -1571,51 +1747,113 @@ void NeneApp::BuildRenderItems()
     mAllRitems.push_back(std::move(sphereRitem));*/
 
     mLightRitems.clear();
-    for (int i = 0; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
-    {
-        auto lightItem = std::make_shared<RenderItem>();
-        lightItem->ObjCBIndex = mAllRitems.size() + mLightRitems.size();
-        lightItem->NumFramesDirty = gNumFrameResources;
+    auto quadGeo = mGeometries["lightQuad"].get();
+    auto sphereGeo = mGeometries["lightSphere"].get();
+    auto cylGeo = mGeometries["lightCylinder"].get();
+    // Dir light RI
+    auto dirRI = std::make_shared<RenderItem>();
+    dirRI->World = MathHelper::Identity4x4();
+    dirRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+    dirRI->Geo = quadGeo;
+    dirRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    dirRI->IndexCount = quadGeo->DrawArgs["lightQuad"].IndexCount;  // Assuming submesh ""
+    dirRI->StartIndexLocation = quadGeo->DrawArgs["lightQuad"].StartIndexLocation;
+    dirRI->BaseVertexLocation = quadGeo->DrawArgs["lightQuad"].BaseVertexLocation;
+    dirRI->LightIndex = 0;
+    dirRI->IsDirectional = true;
+    dirRI->PSOType = "DeferredLightDepthOff";
+    dirRI->Visible = true;
+    dirRI->NumFramesDirty = gNumFrameResources;
+    //mAllRitems.push_back(dirRI);
+    mLightRitems.push_back(dirRI);
 
-        if (i < NUM_DIR_LIGHTS)
-        {
-            lightItem->Geo = mGeometries["lightQuad"].get();
-            lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-            lightItem->World = MathHelper::Identity4x4();
-        }
-        else if (i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
-        {
-            lightItem->Geo = mGeometries["lightBox"].get();
-            lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-            float radius = mMainPassCB.Lights[i].FalloffEnd;
-            XMMATRIX scale = XMMatrixScaling(radius * 2.0f, radius * 2.0f, radius * 2.0f);
-            XMMATRIX translate = XMMatrixTranslation(mMainPassCB.Lights[i].Position.x, mMainPassCB.Lights[i].Position.y, mMainPassCB.Lights[i].Position.z);
-            XMStoreFloat4x4(&lightItem->World, scale * translate);
-        }
-        else if (i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
-        {
-            lightItem->Geo = mGeometries["lightBox"].get();
-            lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-            float coneAngle = acos(1.0f / mMainPassCB.Lights[i].SpotPower) * 2.0f;
-            float radius = mMainPassCB.Lights[i].FalloffEnd * tan(coneAngle / 2.0f);
-            XMMATRIX scale = XMMatrixScaling(radius * 2.0f, mMainPassCB.Lights[i].FalloffEnd, radius * 2.0f);
-            XMMATRIX rotation = CreateRotationMatrixFromDirection(mMainPassCB.Lights[i].Direction);
-            XMMATRIX translate = XMMatrixTranslation(mMainPassCB.Lights[i].Position.x, mMainPassCB.Lights[i].Position.y, mMainPassCB.Lights[i].Position.z);
-            XMStoreFloat4x4(&lightItem->World, scale * rotation * translate);
-        }
+    // Point light RI (scale to falloff, pos static)
+    auto pointRI = std::make_shared<RenderItem>();
+    XMMATRIX pointS = XMMatrixScaling(1.0f, 1.0f, 1.0f);  // Match FalloffEnd
+    XMMATRIX pointT = XMMatrixTranslation(0.0f, 1.0f, 0.0f);  // Static world pos
+    XMStoreFloat4x4(&pointRI->World, pointS * pointT);
+    pointRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+    pointRI->Geo = sphereGeo;
+    pointRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    pointRI->IndexCount = sphereGeo->DrawArgs["lightSphere"].IndexCount;
+    pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightSphere"].StartIndexLocation;
+    pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightSphere"].BaseVertexLocation;
+    pointRI->LightIndex = 1;
+    pointRI->IsDirectional = false;
+    pointRI->PSOType = "DeferredLightDepthOff";
+    pointRI->Visible = true;
+    pointRI->NumFramesDirty = gNumFrameResources;
+    //mAllRitems.push_back(pointRI);
+    mLightRitems.push_back(pointRI);
 
-        lightItem->IndexCount = lightItem->Geo->DrawArgs.begin()->second.IndexCount;
-        lightItem->StartIndexLocation = lightItem->Geo->DrawArgs.begin()->second.StartIndexLocation;
-        lightItem->BaseVertexLocation = lightItem->Geo->DrawArgs.begin()->second.BaseVertexLocation;
-        lightItem->Name = "Light" + std::to_string(i);
-        lightItem->Visible = true;
+    // Spot light RI (scale/rotate to match dir/falloff)
+    auto spotRI = std::make_shared<RenderItem>();
+    XMMATRIX spotR = XMMatrixRotationX(XM_PI);  // Point down (-Y)
+    XMMATRIX spotS = XMMatrixScaling(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
+    XMMATRIX spotT = XMMatrixTranslation(10.0f, 10.0f, -5.0f);
+    XMStoreFloat4x4(&spotRI->World, spotT);
+    spotRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+    spotRI->Geo = cylGeo;
+    spotRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    spotRI->IndexCount = cylGeo->DrawArgs["lightCylinder"].IndexCount;
+    spotRI->StartIndexLocation = cylGeo->DrawArgs["lightCylinder"].StartIndexLocation;
+    spotRI->BaseVertexLocation = cylGeo->DrawArgs["lightCylinder"].BaseVertexLocation;
+    spotRI->LightIndex = 2;
+    spotRI->IsDirectional = false;
+    spotRI->PSOType = "DeferredLightDepthOff";
+    spotRI->Visible = true;
+    spotRI->NumFramesDirty = gNumFrameResources;
+    //mAllRitems.push_back(spotRI);
+    mLightRitems.push_back(spotRI);
 
-        //mAllRitems.push_back(lightItem);
-        mLightRitems.push_back(lightItem);
-    }
+    //for (int i = 0; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
+    //{
+    //    auto lightItem = std::make_shared<RenderItem>();
+    //    lightItem->ObjCBIndex = mAllRitems.size() + mLightRitems.size();
+    //    lightItem->NumFramesDirty = gNumFrameResources;
+
+    //    if (i < NUM_DIR_LIGHTS)
+    //    {
+    //        lightItem->Geo = mGeometries["lightQuad"].get();
+    //        lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    //        lightItem->World = MathHelper::Identity4x4();
+    //        lightItem->PSOType = "DeferredLightDepthOff";
+    //    }
+    //    else if (i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
+    //    {
+    //        lightItem->Geo = mGeometries["lightSphere"].get();
+    //        lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    //        float radius = mMainPassCB.Lights[i].FalloffEnd;
+    //        XMMATRIX scale = XMMatrixScaling(radius * 2.0f, radius * 2.0f, radius * 2.0f);
+    //        XMMATRIX translate = XMMatrixTranslation(mMainPassCB.Lights[i].Position.x, mMainPassCB.Lights[i].Position.y, mMainPassCB.Lights[i].Position.z);
+    //        XMStoreFloat4x4(&lightItem->World, XMMatrixTranspose(scale * translate));
+    //        lightItem->PSOType = "DeferredLightDepthOn";
+    //    }
+    //    else if (i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
+    //    {
+    //        lightItem->Geo = mGeometries["lightBox"].get();
+    //        lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    //        float coneAngle = acos(1.0f / mMainPassCB.Lights[i].SpotPower) * 2.0f;
+    //        float radius = mMainPassCB.Lights[i].FalloffEnd * tan(coneAngle / 2.0f);
+    //        XMMATRIX scale = XMMatrixScaling(radius * 2.0f, mMainPassCB.Lights[i].FalloffEnd, radius * 2.0f);
+    //        XMMATRIX rotation = CreateRotationMatrixFromDirection(mMainPassCB.Lights[i].Direction);
+    //        XMMATRIX translate = XMMatrixTranslation(mMainPassCB.Lights[i].Position.x, mMainPassCB.Lights[i].Position.y, mMainPassCB.Lights[i].Position.z);
+    //        XMStoreFloat4x4(&lightItem->World, scale * rotation * translate);
+    //        lightItem->PSOType = "DeferredLightDepthOn";
+    //    }
+
+    //    lightItem->IndexCount = lightItem->Geo->DrawArgs.begin()->second.IndexCount;
+    //    lightItem->StartIndexLocation = lightItem->Geo->DrawArgs.begin()->second.StartIndexLocation;
+    //    lightItem->BaseVertexLocation = lightItem->Geo->DrawArgs.begin()->second.BaseVertexLocation;
+    //    lightItem->Name = "Light" + std::to_string(i);
+    //    lightItem->Visible = true;
+
+    //    //mAllRitems.push_back(lightItem);
+    //    mLightRitems.push_back(lightItem);
+    //}
     
     std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
-    std::cout << "OpaqueRitems size: " << mOpaqueRitems.size() << std::endl;
+    std::cout << "Light render items size: " << mLightRitems.size() << std::endl;
 }
 
 void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
@@ -1694,38 +1932,42 @@ void NeneApp::DrawDeffered()
 
 
     m_commandList->SetPipelineState(mPSOs["deferredGeo"].Get());
-
     m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
+
     m_commandList->SetGraphicsRootConstantBufferView(4, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
-
-
     DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
 
-    m_gBuffer.BindForLightingPass(m_commandList.Get());
-
-
     // Lighting Pass
-    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr);
+    m_gBuffer.BindForLightingPass(m_commandList.Get());
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
     m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
 
-    m_commandList->SetPipelineState(mPSOs["deferredLight"].Get());
+    m_commandList->SetPipelineState(mPSOs["DeferredLightDepthOff"].Get());
     m_commandList->SetGraphicsRootSignature(m_defferedRootSignature.Get());
     auto srvHandles = m_gBuffer.GetSRVs();
     m_commandList->SetGraphicsRootDescriptorTable(3, srvHandles[0]);
     m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
-    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 
-    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     for (const auto& lightItem : mLightRitems)
     {
+        if (lightItem->IsDirectional)
+            m_commandList->SetPipelineState(mPSOs["lightQUADPsoDesc"].Get());
+
         auto objCB = mCurrFrameResource->ObjectCB->Resource();
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
         m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+        // Set PSO by type
+        m_commandList->SetPipelineState(mPSOs[lightItem->PSOType].Get());
+
         m_commandList->IASetVertexBuffers(0, 1, &lightItem->Geo->VertexBufferView());
         m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
         m_commandList->IASetPrimitiveTopology(lightItem->PrimitiveType);
         m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
+        if (lightItem->IsDirectional)
+            m_commandList->SetPipelineState(mPSOs["DeferredLightDepthOff"].Get());
     }
 
     m_gBuffer.Unbind(m_commandList.Get());
