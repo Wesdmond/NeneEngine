@@ -5,6 +5,8 @@
 DXGI_FORMAT gbufferFormats[] = { DXGI_FORMAT_R8G8B8A8_UNORM,      // Albedo
                                  DXGI_FORMAT_R32G32B32A32_FLOAT,  // Normal
                                  DXGI_FORMAT_R32_FLOAT };         // Spec/Roughness
+DXGI_FORMAT depthFormat = DXGI_FORMAT_D32_FLOAT;                  // Depth (DSV)
+DXGI_FORMAT depthSrvFormat = DXGI_FORMAT_R32_FLOAT;               // Depth (SRV)
 
 void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHeapStart,
@@ -22,26 +24,32 @@ void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
 
     m_gbufferTextures.resize(3);
     m_rtvHandles.resize(3);
-    m_gbufferSRVs.resize(3);
+    m_gbufferSRVs.resize(4);
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeapStart);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeapStart);
 
+    // Create G-Buffer textures and RTVs/SRVs
     D3D12_CLEAR_VALUE optClear;
-    optClear.DepthStencil.Depth = 1.0f;
-    optClear.DepthStencil.Stencil = 0;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 3; ++i)
+    {
         optClear.Format = gbufferFormats[i];
-        // Clear values
-        if (i == 0) {  // Albedo: Black
-            optClear.Color[0] = optClear.Color[1] = optClear.Color[2] = 0.0f; optClear.Color[3] = 1.0f;
+        if (i == 0) { // Albedo: Black
+            optClear.Color[0] = optClear.Color[1] = optClear.Color[2] = 0.0f;
+            optClear.Color[3] = 1.0f;
         }
-        else if (i == 1) {  // Normal: (0,0,1,0) — default up
-            optClear.Color[0] = optClear.Color[1] = 0.0f; optClear.Color[2] = 1.0f; optClear.Color[3] = 0.0f;
+        else if (i == 1) { // Normal: (0,0,1,0)
+            optClear.Color[0] = optClear.Color[1] = 0.0f;
+            optClear.Color[2] = 1.0f;
+            optClear.Color[3] = 0.0f;
         }
-        else {  // Roughness: 0.5 (neutral)
-            optClear.Color[0] = 0.5f;
+        else { // Roughness: 0
+            optClear.Color[0] = 0.0f;
+            optClear.Color[1] = optClear.Color[2] = optClear.Color[3] = 0.0f;
         }
-        ThrowIfFailed(device->CreateCommittedResource(  
+
+        // Create texture
+        ThrowIfFailed(device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Tex2D(gbufferFormats[i], width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET),
@@ -49,13 +57,12 @@ void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
             &optClear,
             IID_PPV_ARGS(&m_gbufferTextures[i])));
 
-        // RTV в m_gbufferRtvHeap
+        // Create RTV
         device->CreateRenderTargetView(m_gbufferTextures[i].Get(), nullptr, rtvHandle);
         m_rtvHandles[i] = rtvHandle;
         rtvHandle.Offset(m_rtvDescriptorSize);
 
-        // SRV (offset i от srvHeapStart, который уже после текстур)
-        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(srvHeapStart, i, m_srvDescriptorSize);
+        // Create SRV (offset i from srvHeapStart)
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format = gbufferFormats[i];
@@ -64,8 +71,38 @@ void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
         device->CreateShaderResourceView(m_gbufferTextures[i].Get(), &srvDesc, srvHandle);
-        m_gbufferSRVs[i] = CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuHeapStart, i, m_srvDescriptorSize);
+        m_gbufferSRVs[i] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_srvGpuHeapStart, i, m_srvDescriptorSize);
+        srvHandle.Offset(m_srvDescriptorSize);
     }
+    // Create depth buffer
+    optClear.Format = depthFormat;
+    optClear.DepthStencil.Depth = 1.0f;
+    optClear.DepthStencil.Stencil = 0;
+    ThrowIfFailed(device->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+        D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_RESOURCE_DESC::Tex2D(depthFormat, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        &optClear,
+        IID_PPV_ARGS(&m_depthBuffer)));
+
+    // Create DSV
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = depthFormat;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsvDesc.Texture2D.MipSlice = 0;
+    device->CreateDepthStencilView(m_depthBuffer.Get(), &dsvDesc, m_dsvHandle);
+
+    // Create SRV for depth (offset 3 from srvHeapStart)
+    D3D12_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
+    depthSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    depthSrvDesc.Format = depthSrvFormat;
+    depthSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    depthSrvDesc.Texture2D.MipLevels = 1;
+    depthSrvDesc.Texture2D.MostDetailedMip = 0;
+    depthSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+    device->CreateShaderResourceView(m_depthBuffer.Get(), &depthSrvDesc, srvHandle);
+    m_gbufferSRVs[3] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_srvGpuHeapStart, 3, m_srvDescriptorSize);
 }
 
 void GBuffer::BindForGeometryPass(ID3D12GraphicsCommandList* cmdList)
@@ -86,6 +123,8 @@ void GBuffer::BindForLightingPass(ID3D12GraphicsCommandList* cmdList)
     for (auto& tex : m_gbufferTextures) {
         cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(tex.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
     }
+    cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthBuffer.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 }
 
 void GBuffer::Unbind(ID3D12GraphicsCommandList* cmdList)
@@ -94,6 +133,8 @@ void GBuffer::Unbind(ID3D12GraphicsCommandList* cmdList)
     for (auto& tex : m_gbufferTextures) {
         cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(tex.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET));
     }
+    cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthBuffer.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE));
 }
 
 void GBuffer::Resize(ID3D12Device* device, UINT width, UINT height)

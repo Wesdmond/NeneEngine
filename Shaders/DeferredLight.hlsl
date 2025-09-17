@@ -1,26 +1,23 @@
-#ifndef USE_NORMAL_MAP
-    #define USE_NORMAL_MAP 0
-#endif
-
-#ifndef USE_DISPLACEMENT_MAP
-    #define USE_DISPLACEMENT_MAP 0
-#endif
-
-// Defaults for number of lights.
 #ifndef NUM_DIR_LIGHTS
     #define NUM_DIR_LIGHTS 3
 #endif
 
 #ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 0
+    #define NUM_POINT_LIGHTS 1
 #endif
 
 #ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
+    #define NUM_SPOT_LIGHTS 1
 #endif
 
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
+
+cbuffer cbPerObject : register(b0)
+{
+    float4x4 gWorld;
+    float4x4 gTexTransform;
+};
 
 // Constant data that varies per material.
 cbuffer cbPass : register(b1)
@@ -48,10 +45,10 @@ cbuffer cbPass : register(b1)
     Light gLights[MaxLights];
 };
 
-Texture2D gAlbedo : register(t3);
-Texture2D gNormal : register(t4);
-Texture2D gRoughness : register(t5);
-Texture2D gDepth : register(t6);
+Texture2D gAlbedo : register(t0);
+Texture2D gNormal : register(t1);
+Texture2D gRoughness : register(t2);
+Texture2D gDepth : register(t3);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -60,32 +57,38 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
+struct VertexIn
+{
+    float3 PosL : POSITION;
+    float3 NormalL : NORMAL;
+    float2 TexC : TEXCOORD;
+};
+
 struct VertexOut
 {
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
 };
 
-VertexOut VS(uint vid : SV_VertexID)
+VertexOut VS(VertexIn vin)
 {
     VertexOut vout;
-    vout.TexC = float2((vid << 1) & 2, vid & 2);
-    vout.PosH = float4(vout.TexC * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vout.PosH = mul(posW, gViewProj);
     return vout;
 }
 
 float3 ComputeWorldlPos(float2 uv, float depth)
 {        
-    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0); // Flip Y для DirectX
-    float4 clipPos = float4(ndc, depth, 1.0);
-    float4 worldPos = mul(clipPos, gInvViewProj); // Прямо в world space
-    return worldPos.xyz / worldPos.w;
+    float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+    float4 clip = float4(ndc, depth, 1.0f);
+    float4 world = mul(clip, gInvViewProj);
+    return world.xyz / world.w;
 }
 
 float4 PS(VertexOut pin) : SV_TARGET
 {
-    float2 texC = pin.TexC;
-
+    float2 texC = pin.PosH;
     float depth = gDepth.Load(float3(texC, 0)).r;
     float3 posW = ComputeWorldlPos(texC, depth);
     float3 normalW = normalize(gNormal.Sample(gsamPointWrap, texC).xyz);
@@ -96,12 +99,42 @@ float4 PS(VertexOut pin) : SV_TARGET
     const float shininess = 1.0f - roughness;
     Material mat = { albedo, float3(0.01f, 0.01f, 0.01), shininess };
     float3 shadowFactor = 1.0f;
-    float3 lighting = gAmbientLight.rgb;
-    lighting += ComputeLighting(gLights, mat, posW, normalW, toEye, shadowFactor);
-    //for (int i = 0; i < MaxLights; ++i)
+    
+    float3 lighting = gAmbientLight.rgb * albedo.rgb;
+    //float3 lighting = ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
+    
+    //if (lightIndex == 0)
     //{
-    //    // Пример освещения (нужно реализовать ComputeLighting)
-    //    lighting += ComputeLighting(gLights, posW, normalW, toEye, albedo.rgb, roughness);
+    //    lighting += gAmbientLight.rgb * albedo.rgb;
     //}
-    return float4(lighting, 1.0);
+
+    //if (lightIndex < NUM_DIR_LIGHTS)
+    //{
+    //    lighting += ComputeDirectionalLight(gLights[lightIndex], mat, normalW, toEye);
+    //}
+    //else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
+    //{
+    //    float3 lightVec = gLights[lightIndex].Position - posW;
+    //    float d = length(lightVec);
+    //    if (d <= gLights[lightIndex].FalloffEnd)
+    //    {
+    //        lighting += ComputePointLight(gLights[lightIndex], mat, posW, normalW, toEye);
+    //    }
+    //}
+    //else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
+    //{
+    //    float3 lightVec = gLights[lightIndex].Position - posW;
+    //    float d = length(lightVec);
+    //    if (d <= gLights[lightIndex].FalloffEnd)
+    //    {
+    //        lightVec = normalize(lightVec);
+    //        float spotFactor = pow(max(dot(-lightVec, gLights[lightIndex].Direction), 0.0f), gLights[lightIndex].SpotPower);
+    //        if (spotFactor > 0.0f)
+    //        {
+    //            lighting += ComputeSpotLight(gLights[lightIndex], mat, posW, normalW, toEye);
+    //        }
+    //    }
+    //}
+
+    return float4(lighting, 1.0f);
 }

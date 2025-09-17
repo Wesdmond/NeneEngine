@@ -81,6 +81,7 @@ private:
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
+    void BuildLightGeometries();
     void BuildManyBoxes(UINT count = 1000);
     void BuildDisplacementTestGeometry();
     void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform, D3D12_PRIMITIVE_TOPOLOGY type);
@@ -111,6 +112,8 @@ private:
     std::shared_ptr<InputDevice> m_inputDevice;
     GBuffer m_gBuffer;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_rtvGBufferHeap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_dsvGBufferHeap;
+    ComPtr<ID3D12RootSignature> m_defferedRootSignature;
 
 #pragma region App Resources
     std::vector<std::unique_ptr<FrameResource>> mFrameResources;
@@ -143,6 +146,7 @@ private:
     std::vector<std::shared_ptr<RenderItem>> mTessRitems;
     std::vector<std::shared_ptr<RenderItem>> mNormalRitems;
     std::vector<std::shared_ptr<RenderItem>> mBasicRitems;
+    std::vector<std::shared_ptr<RenderItem>> mLightRitems;
 
     PassConstants mMainPassCB;;
 
