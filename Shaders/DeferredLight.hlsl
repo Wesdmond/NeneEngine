@@ -1,5 +1,5 @@
 #ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
+    #define NUM_DIR_LIGHTS 1
 #endif
 
 #ifndef NUM_POINT_LIGHTS
@@ -68,13 +68,27 @@ struct VertexOut
 {
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
+    uint InstanceID : SV_InstanceID;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
     VertexOut vout;
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
-    vout.PosH = mul(posW, gViewProj);
+
+    if (instanceID < NUM_DIR_LIGHTS)
+    {
+        // For directional lights (quad in NDC)
+        vout.PosH = float4(vin.PosL, 1.0f); // Already in NDC
+        //vout.PosH.y *= -1;
+    }
+    else
+    {
+        // For point/spot lights (box geometry)
+        float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+        vout.PosH = mul(posW, gViewProj);
+    }
+    vout.InstanceID = instanceID;
+    vout.TexC = vin.TexC;
     return vout;
 }
 
@@ -88,7 +102,8 @@ float3 ComputeWorldlPos(float2 uv, float depth)
 
 float4 PS(VertexOut pin) : SV_TARGET
 {
-    float2 texC = pin.PosH;
+    uint lightIndex = pin.InstanceID;
+    float2 texC = pin.PosH.xy * gInvRenderTargetSize;
     float depth = gDepth.Load(float3(texC, 0)).r;
     float3 posW = ComputeWorldlPos(texC, depth);
     float3 normalW = normalize(gNormal.Sample(gsamPointWrap, texC).xyz);
@@ -99,42 +114,42 @@ float4 PS(VertexOut pin) : SV_TARGET
     const float shininess = 1.0f - roughness;
     Material mat = { albedo, float3(0.01f, 0.01f, 0.01), shininess };
     float3 shadowFactor = 1.0f;
-    
-    float3 lighting = gAmbientLight.rgb * albedo.rgb;
+    ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
+    //float3 lighting = gAmbientLight.rgb * albedo.rgb;
     //float3 lighting = ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
-    
-    //if (lightIndex == 0)
-    //{
-    //    lighting += gAmbientLight.rgb * albedo.rgb;
-    //}
+    float3 lighting = 0.0f;
+    if (lightIndex == 0)
+    {
+        lighting += gAmbientLight.rgb * albedo.rgb;
+    }
 
-    //if (lightIndex < NUM_DIR_LIGHTS)
-    //{
-    //    lighting += ComputeDirectionalLight(gLights[lightIndex], mat, normalW, toEye);
-    //}
-    //else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
-    //{
-    //    float3 lightVec = gLights[lightIndex].Position - posW;
-    //    float d = length(lightVec);
-    //    if (d <= gLights[lightIndex].FalloffEnd)
-    //    {
-    //        lighting += ComputePointLight(gLights[lightIndex], mat, posW, normalW, toEye);
-    //    }
-    //}
-    //else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
-    //{
-    //    float3 lightVec = gLights[lightIndex].Position - posW;
-    //    float d = length(lightVec);
-    //    if (d <= gLights[lightIndex].FalloffEnd)
-    //    {
-    //        lightVec = normalize(lightVec);
-    //        float spotFactor = pow(max(dot(-lightVec, gLights[lightIndex].Direction), 0.0f), gLights[lightIndex].SpotPower);
-    //        if (spotFactor > 0.0f)
-    //        {
-    //            lighting += ComputeSpotLight(gLights[lightIndex], mat, posW, normalW, toEye);
-    //        }
-    //    }
-    //}
+    if (lightIndex < NUM_DIR_LIGHTS)
+    {
+        lighting += ComputeDirectionalLight(gLights[lightIndex], mat, normalW, toEye);
+    }
+    else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
+    {
+        float3 lightVec = gLights[lightIndex].Position - posW;
+        float d = length(lightVec);
+        if (d <= gLights[lightIndex].FalloffEnd)
+        {
+            lighting += ComputePointLight(gLights[lightIndex], mat, posW, normalW, toEye);
+        }
+    }
+    else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
+    {
+        float3 lightVec = gLights[lightIndex].Position - posW;
+        float d = length(lightVec);
+        if (d <= gLights[lightIndex].FalloffEnd)
+        {
+            lightVec = normalize(lightVec);
+            float spotFactor = pow(max(dot(-lightVec, gLights[lightIndex].Direction), 0.0f), gLights[lightIndex].SpotPower);
+            if (spotFactor > 0.0f)
+            {
+                lighting += ComputeSpotLight(gLights[lightIndex], mat, posW, normalW, toEye);
+            }
+        }
+    }
 
     return float4(lighting, 1.0f);
 }

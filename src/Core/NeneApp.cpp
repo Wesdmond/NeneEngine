@@ -6,7 +6,7 @@
 #include <random>
 
 // Light count constants
-const int NUM_DIR_LIGHTS = 3;
+const int NUM_DIR_LIGHTS = 1;
 const int NUM_POINT_LIGHTS = 1;
 const int NUM_SPOT_LIGHTS = 1;
 
@@ -899,7 +899,6 @@ void NeneApp::BuildShadersAndInputLayout()
 void NeneApp::BuildLightGeometries()
 {
     GeometryGenerator geoGen;
-
     // AABB для точечных источников света (куб)
     GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0);
     std::vector<Vertex> boxVertices(box.Vertices.size());
@@ -912,7 +911,7 @@ void NeneApp::BuildLightGeometries()
     std::vector<std::uint16_t> boxIndices = box.GetIndices16();
 
     // Полноэкранный квад для направленных источников света
-    GeometryGenerator::MeshData quad = geoGen.CreateQuad(-1.0f, -1.0f, 2.0f, 2.0f, 0.0f);
+    GeometryGenerator::MeshData quad = geoGen.CreateQuad(-1.0f, 1.0f, 2.0f, 2.0f, 0.0f);
     std::vector<Vertex> quadVertices(quad.Vertices.size());
     for (size_t i = 0; i < quad.Vertices.size(); ++i)
     {
@@ -1388,7 +1387,7 @@ void NeneApp::BuildPSOs()
     deferredLightPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["deferredLightVS"]->GetBufferPointer()), mShaders["deferredLightVS"]->GetBufferSize() };
     deferredLightPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["deferredLightPS"]->GetBufferPointer()), mShaders["deferredLightPS"]->GetBufferSize() };
     deferredLightPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    deferredLightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    deferredLightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
     D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
     rtBlendDesc.BlendEnable = TRUE;
@@ -1409,7 +1408,6 @@ void NeneApp::BuildPSOs()
     deferredLightPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     deferredLightPsoDesc.DepthStencilState.DepthEnable = FALSE;
     deferredLightPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    deferredLightPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     deferredLightPsoDesc.SampleMask = UINT_MAX;
     deferredLightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     deferredLightPsoDesc.NumRenderTargets = 1;
