@@ -1,29 +1,19 @@
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 1
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 1
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 1
-#endif
+#define AMBIENT     0
+#define DIRECTIONAL 1
+#define POINTLIGHT  2
+#define SPOTLIGHT   3
 
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
-cbuffer cbPerObject : register(b0)
+cbuffer cbPerObject         : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
-    uint gLightIndex;
-    uint gIsDirectional;
-    float gPad[2];
 };
 
 // Constant data that varies per material.
-cbuffer cbPass : register(b1)
+cbuffer cbPass              : register(b1)
 {
     float4x4 gView;
     float4x4 gInvView;
@@ -31,65 +21,51 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
-    float3 gEyePosW;
-    float cbPerObjectPad1;
-    float2 gRenderTargetSize;
-    float2 gInvRenderTargetSize;
-    float gNearZ;
-    float gFarZ;
-    float gTotalTime;
-    float gDeltaTime;
-    float4 gAmbientLight;
-
-    // Indices [0, NUM_DIR_LIGHTS) are directional lights;
-    // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
-    // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
-    // are spot lights for a maximum of MaxLights per object.
-    Light gLights[MaxLights];
+    float3  gEyePosW;
+    float   cbPerObjectPad1;
+    float2  gRenderTargetSize;
+    float2  gInvRenderTargetSize;
+    float   gNearZ;
+    float   gFarZ;
+    float   gTotalTime;
+    float   gDeltaTime;
+    float4  gAmbientLight;
 };
 
-Texture2D gAlbedo : register(t0);
-Texture2D gNormal : register(t1);
-Texture2D gRoughness : register(t2);
-Texture2D gDepth : register(t3);
+cbuffer LightBuf            : register(b2)
+{
+    Light LightData;
+    uint gLightType;
+    float pad[3];
+}
 
-SamplerState gsamPointWrap : register(s0);
-SamplerState gsamPointClamp : register(s1);
-SamplerState gsamLinearWrap : register(s2);
-SamplerState gsamLinearClamp : register(s3);
-SamplerState gsamAnisotropicWrap : register(s4);
-SamplerState gsamAnisotropicClamp : register(s5);
+SamplerState Sampler        : register(s0);
 
 struct VertexIn
 {
-    float3 PosL : POSITION;
-    float3 NormalL : NORMAL;
-    float2 TexC : TEXCOORD;
+    float3 PosL             : POSITION;
+    float3 NormalL          : NORMAL;
+    float2 TexC             : TEXCOORD;
 };
 
 struct VertexOut
 {
-    float4 PosH : SV_POSITION;
-    float2 TexC : TEXCOORD;
+    float4 PosH             : SV_POSITION;
 };
 
 VertexOut VS(VertexIn vin)
 {
     VertexOut vout;
 
-    if (gIsDirectional == 1)
+    if (gLightType == AMBIENT || gLightType == DIRECTIONAL)
     {
-        // For directional lights (quad in NDC)
-        vout.PosH = float4(vin.PosL, 1.0f); // Already in NDC
+        vout.PosH = float4(vin.PosL, 1.0f);
     }
     else
     {
-        // For point/spot lights (box geometry)
         float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
-        //vout.PosW = posW;
         vout.PosH = mul(posW, gViewProj);
     }
-    vout.TexC = vin.TexC;
     return vout;
 }
 
@@ -101,51 +77,60 @@ float3 ComputeWorldlPos(float2 uv, float depth)
     return world.xyz / world.w;
 }
 
-float4 PS(VertexOut pin) : SV_TARGET
+Texture2D DiffuseMap        : register(t0);
+Texture2D NormalMap         : register(t1);
+Texture2D RoughnessMap      : register(t2);
+Texture2D DepthMap          : register(t3);
+
+struct GBufferData
 {
-    uint lightIndex = gLightIndex; 
-    float2 texC;
-    texC = pin.PosH.xy * gInvRenderTargetSize;
-    float depth = gDepth.Load(float3(texC, 0)).r;
-    float3 posW = ComputeWorldlPos(texC, depth);
-    float3 normalW = normalize(gNormal.Sample(gsamPointWrap, texC).xyz);
-    float4 albedo = gAlbedo.Sample(gsamPointWrap, texC);
-    float roughness = gRoughness.Sample(gsamPointWrap, texC).x;
+    float4 Albedo;
+    float3 Normal;
+    float3 Roughness;
+    float3 Depth;
+};
+
+GBufferData ReadGBuffer(float2 screenPos)
+{
+    GBufferData buf = (GBufferData) 0;
+    
+    buf.Albedo = DiffuseMap.Load(float3(screenPos, 0));
+    buf.Normal = NormalMap.Load(float3(screenPos, 0));
+    buf.Roughness = RoughnessMap.Load(float3(screenPos, 0));
+    buf.Depth = DepthMap.Load(float3(screenPos, 0));
+    
+    return buf;
+}
+
+float4 PS(VertexOut pin)    : SV_TARGET
+{
+    float2 texC = pin.PosH.xy * gInvRenderTargetSize;
+    
+    GBufferData buf = ReadGBuffer(pin.PosH.xy);
+    float3 posW = ComputeWorldlPos(pin.PosH.xy, buf.Depth.r);
 
     float3 toEye = normalize(gEyePosW - posW);
-    const float shininess = 1.0f - roughness;
-    Material mat = { albedo, float3(0.01f, 0.01f, 0.01), shininess };
+    const float shininess = 1.0f - 0.8; // TODO: Add buf.Roughness
+    Material mat = { buf.Albedo, float3(0.01f, 0.01f, 0.01), shininess };
     float3 shadowFactor = 1.0f;
-    //ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
-    //float3 lighting = gAmbientLight.rgb * albedo.rgb;
-    //float3 lighting = ComputeLighting(gLights, mat, gEyePosW, normalW, toEye, shadowFactor);
-    float3 lighting = 0.0f;
-    if (lightIndex == 0)
-    {
-        lighting += gAmbientLight.rgb * albedo.rgb;
-    }
 
-    if (lightIndex < NUM_DIR_LIGHTS)
+    float3 lighting = 0.0f;
+    switch (gLightType)
     {
-        lighting += ComputeDirectionalLight(gLights[lightIndex], mat, normalW, toEye);
-    }
-    else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
-    {
-        lighting += ComputePointLight(gLights[lightIndex], mat, posW, normalW, toEye);
-    }
-    else if (lightIndex < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
-    {
-        float3 lightVec = gLights[lightIndex].Position - posW;
-        float d = length(lightVec);
-        if (d <= gLights[lightIndex].FalloffEnd)
-        {
-            lightVec = normalize(lightVec);
-            float spotFactor = pow(max(dot(-lightVec, gLights[lightIndex].Direction), 0.0f), gLights[lightIndex].SpotPower);
-            if (spotFactor > 0.0f)
-            {
-                lighting += ComputeSpotLight(gLights[lightIndex], mat, posW, normalW, toEye);
-            }
-        }
+        case AMBIENT:
+            lighting += gAmbientLight.rgb * buf.Albedo.rgb;
+            break;
+        case DIRECTIONAL:
+            lighting += gAmbientLight.rgb * buf.Albedo.rgb; // temp solution with no ambient and only ambient + directional
+            lighting += ComputeDirectionalLight(LightData, mat, buf.Normal, toEye);
+            break;
+        case POINTLIGHT:
+            lighting += ComputePointLight(LightData, mat, posW, buf.Normal, toEye);
+            break;
+        case SPOTLIGHT:
+            lighting += ComputeSpotLight(LightData, mat, posW, buf.Normal, toEye);
+            break;
+            
     }
 
     return float4(lighting, 1.0f);

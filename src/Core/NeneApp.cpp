@@ -159,7 +159,6 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
             e->NumFramesDirty--;
         }
     }
-
     for (auto& e : mLightRitems)
     {
         // Only update the cbuffer data if the constants have changed.  
@@ -167,15 +166,10 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
         if (e->NumFramesDirty > 0)
         {
             XMMATRIX world = XMLoadFloat4x4(&e->World);
-            XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
 
             ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
-            XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-            if (e->LightIndex != UINT_MAX) {
-                objConstants.LightIndex = e->LightIndex;
-                objConstants.IsDirectional = e->IsDirectional ? 1u : 0u;
-            }
+
             currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
             // Next FrameResource need to be updated too.
@@ -237,26 +231,34 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
     mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.25f, 1.0f };
-    // Инициализация источников света
-     // Инициализация источников света
-    // Направленный свет (индексы 0–2)
-    mMainPassCB.Lights[0].Direction = { 0.0f, -1.0f, 0.0f };
-    mMainPassCB.Lights[0].Strength = { 1.0f, 1.0f, 1.0f };
-
-    mMainPassCB.Lights[1].Position = { 0.0f, 1.0f, 0.0f }; // Точечный свет
-    mMainPassCB.Lights[1].FalloffStart = 20.0f;
-    mMainPassCB.Lights[1].FalloffEnd = 200.0f;
-    mMainPassCB.Lights[1].Strength = { 1.0f, 1.0f, 1.0f };
-
-    mMainPassCB.Lights[2].Position = { 10.0f, 10.0f, -5.0f }; // Прожекторный свет
-    mMainPassCB.Lights[2].FalloffStart = 1.0f;
-    mMainPassCB.Lights[2].FalloffEnd = 20.0f;
-    mMainPassCB.Lights[2].Direction = { 0.0f, -1.0f, 0.0f };
-    mMainPassCB.Lights[2].SpotPower = 10.0f;
-    mMainPassCB.Lights[2].Strength = { 1.0f, 1.0f, 1.0f };
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
+}
+
+void NeneApp::UpdateLightCB(const GameTimer& gt) {
+    auto currLightCB = mCurrFrameResource->LightCB.get();
+    for (auto& e : mLightRitems)
+    {
+        // Only update the cbuffer data if the constants have changed.  
+        // This needs to be tracked per frame resource.
+        if (e->NumFramesDirty > 0)
+        {
+            SimpleMath::Vector3 position, dump1;
+            SimpleMath::Quaternion dump2;
+            e->World.Decompose(dump1, dump2, position);
+            e->light.Position = position;
+
+            LightData lightConstants;
+            lightConstants.light = e->light;
+            lightConstants.lightType = e->lightType;
+
+            currLightCB->CopyData(e->LightCBIndex, lightConstants);
+
+            // Next FrameResource need to be updated too.
+            e->NumFramesDirty--;
+        }
+    }
 }
 
 void NeneApp::UpdateVisibleRenderItems()
@@ -397,6 +399,7 @@ void NeneApp::Update(const GameTimer& gt)
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
+    UpdateLightCB(gt);
     //UpdateVisibleRenderItems();
 }
 
@@ -884,22 +887,11 @@ void NeneApp::BuildRootSignature()
 
 void NeneApp::BuildShadersAndInputLayout()
 {
-    // Basic shader (no normalMap and displacementMap)
-    mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_1");
-    mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_1");
-
-    // Shader with normalMap
-    D3D_SHADER_MACRO normalMacros[] = {
-        { "USE_NORMAL_MAP", "1" },
-        { nullptr, nullptr }
-    };
-    mShaders["normalVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "VS", "vs_5_1");
-    mShaders["normalPS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", normalMacros, "PS", "ps_5_1");
-
-    mShaders["DefaultTessVS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "VSMain", "vs_5_1");
-    mShaders["DefaultTessHS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "HSMain", "hs_5_1");
-    mShaders["DefaultTessDS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "DSMain", "ds_5_1");
-    mShaders["DefaultTessPS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "PSMain", "ps_5_1");
+    // TODO: Fix Tesselator shader to work with light again
+    //mShaders["DefaultTessVS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "VSMain", "vs_5_1");
+    //mShaders["DefaultTessHS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "HSMain", "hs_5_1");
+    //mShaders["DefaultTessDS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "DSMain", "ds_5_1");
+    //mShaders["DefaultTessPS"] = d3dUtil::CompileShader(L"Shaders\\DefaultTessellation.hlsl", nullptr, "PSMain", "ps_5_1");
 
     mShaders["deferredGeoVS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["deferredGeoPS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "PS", "ps_5_1");
@@ -1448,6 +1440,8 @@ void NeneApp::BuildPlane(float width, float height, UINT x, UINT y, const std::s
 
 void NeneApp::BuildPSOs()
 {
+#pragma region OldRealization (Deprecated)
+    /*
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
     //
@@ -1507,6 +1501,8 @@ void NeneApp::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC tessWireframePsoDesc = tessDesc;
     tessWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&tessWireframePsoDesc, IID_PPV_ARGS(&mPSOs["tesselation_wireframe"])));
+    */
+#pragma endregion
 
     // PSO для Geometry Pass
     D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredGeoPsoDesc = {};
@@ -1645,7 +1641,7 @@ void NeneApp::BuildFrameResources()
     for (int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(m_device.Get(),
-            1, (UINT)mAllRitems.size() + (UINT)mLightRitems.size(), (UINT)mMaterials.size()));
+            1, (UINT)mAllRitems.size() + (UINT)mLightRitems.size(), (UINT)mMaterials.size(), (UINT)mLightRitems.size()));
     }
 }
 
@@ -1751,59 +1747,68 @@ void NeneApp::BuildRenderItems()
     auto sphereGeo = mGeometries["lightSphere"].get();
     auto cylGeo = mGeometries["lightCylinder"].get();
     // Dir light RI
-    auto dirRI = std::make_shared<RenderItem>();
+    auto dirRI = std::make_shared<LightItem>();
     dirRI->World = MathHelper::Identity4x4();
     dirRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+    dirRI->LightCBIndex = (UINT)mLightRitems.size();
     dirRI->Geo = quadGeo;
     dirRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    dirRI->IndexCount = quadGeo->DrawArgs["lightQuad"].IndexCount;  // Assuming submesh ""
+    dirRI->IndexCount = quadGeo->DrawArgs["lightQuad"].IndexCount;
     dirRI->StartIndexLocation = quadGeo->DrawArgs["lightQuad"].StartIndexLocation;
     dirRI->BaseVertexLocation = quadGeo->DrawArgs["lightQuad"].BaseVertexLocation;
-    dirRI->LightIndex = 0;
-    dirRI->IsDirectional = true;
     dirRI->PSOType = "DeferredLightDepthOff";
     dirRI->Visible = true;
     dirRI->NumFramesDirty = gNumFrameResources;
-    //mAllRitems.push_back(dirRI);
+    dirRI->lightType = LightTypes::DIRECTIONAL;
+    dirRI->light.Direction = { 0.0f, -1.0f, 0.0f };
+    dirRI->light.Strength = { 1.0f, 1.0f, 1.0f };
     mLightRitems.push_back(dirRI);
 
     // Point light RI (scale to falloff, pos static)
-    auto pointRI = std::make_shared<RenderItem>();
+    auto pointRI = std::make_shared<LightItem>();
     XMMATRIX pointS = XMMatrixScaling(1.0f, 1.0f, 1.0f);  // Match FalloffEnd
     XMMATRIX pointT = XMMatrixTranslation(0.0f, 1.0f, 0.0f);  // Static world pos
     XMStoreFloat4x4(&pointRI->World, pointS * pointT);
     pointRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+    pointRI->LightCBIndex = (UINT)mLightRitems.size();
     pointRI->Geo = sphereGeo;
     pointRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     pointRI->IndexCount = sphereGeo->DrawArgs["lightSphere"].IndexCount;
     pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightSphere"].StartIndexLocation;
     pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightSphere"].BaseVertexLocation;
-    pointRI->LightIndex = 1;
-    pointRI->IsDirectional = false;
     pointRI->PSOType = "DeferredLightDepthOff";
     pointRI->Visible = true;
     pointRI->NumFramesDirty = gNumFrameResources;
-    //mAllRitems.push_back(pointRI);
+    pointRI->lightType = LightTypes::POINTLIGHT;
+    pointRI->light.Position = { 0.0f, 1.0f, 0.0f };
+    pointRI->light.FalloffStart = 20.0f;
+    pointRI->light.FalloffEnd = 200.0f;
+    pointRI->light.Strength = { 1.0f, 1.0f, 1.0f };
     mLightRitems.push_back(pointRI);
 
     // Spot light RI (scale/rotate to match dir/falloff)
-    auto spotRI = std::make_shared<RenderItem>();
+    auto spotRI = std::make_shared<LightItem>();
     XMMATRIX spotR = XMMatrixRotationX(XM_PI);  // Point down (-Y)
     XMMATRIX spotS = XMMatrixScaling(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
     XMMATRIX spotT = XMMatrixTranslation(10.0f, 10.0f, -5.0f);
     XMStoreFloat4x4(&spotRI->World, spotT);
     spotRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+    spotRI->LightCBIndex = (UINT)mLightRitems.size();
     spotRI->Geo = cylGeo;
     spotRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     spotRI->IndexCount = cylGeo->DrawArgs["lightCylinder"].IndexCount;
     spotRI->StartIndexLocation = cylGeo->DrawArgs["lightCylinder"].StartIndexLocation;
     spotRI->BaseVertexLocation = cylGeo->DrawArgs["lightCylinder"].BaseVertexLocation;
-    spotRI->LightIndex = 2;
-    spotRI->IsDirectional = false;
     spotRI->PSOType = "DeferredLightDepthOff";
     spotRI->Visible = true;
     spotRI->NumFramesDirty = gNumFrameResources;
-    //mAllRitems.push_back(spotRI);
+    spotRI->lightType = LightTypes::SPOTLIGHT;
+    spotRI->light.Position = { 10.0f, 10.0f, -5.0f };
+    spotRI->light.FalloffStart = 1.0f;
+    spotRI->light.FalloffEnd = 20.0f;
+    spotRI->light.Direction = { 0.0f, -1.0f, 0.0f };
+    spotRI->light.SpotPower = 10.0f;
+    spotRI->light.Strength = { 1.0f, 1.0f, 1.0f };
     mLightRitems.push_back(spotRI);
 
     //for (int i = 0; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
@@ -1950,14 +1955,15 @@ void NeneApp::DrawDeffered()
 
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightData));
     for (const auto& lightItem : mLightRitems)
     {
-        if (lightItem->IsDirectional)
-            m_commandList->SetPipelineState(mPSOs["lightQUADPsoDesc"].Get());
-
         auto objCB = mCurrFrameResource->ObjectCB->Resource();
+        auto lightCB = mCurrFrameResource->LightCB->Resource();
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
         m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+        m_commandList->SetGraphicsRootConstantBufferView(2, lightCBAddress);
 
         // Set PSO by type
         m_commandList->SetPipelineState(mPSOs[lightItem->PSOType].Get());
@@ -1966,8 +1972,6 @@ void NeneApp::DrawDeffered()
         m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
         m_commandList->IASetPrimitiveTopology(lightItem->PrimitiveType);
         m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
-        if (lightItem->IsDirectional)
-            m_commandList->SetPipelineState(mPSOs["DeferredLightDepthOff"].Get());
     }
 
     m_gBuffer.Unbind(m_commandList.Get());

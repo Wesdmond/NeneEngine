@@ -38,10 +38,6 @@ struct RenderItem
 	MeshGeometry* GeoHigh = nullptr;
     MeshGeometry* CurrentGeo = nullptr;
 
-    // light RIs
-    UINT LightIndex = UINT_MAX;  // 0=dir, 1=point, 2=spot
-    bool IsDirectional = false;
-
     // Choose PSO
     std::string PSOType = "Opaque";
     // Primitive topology.
@@ -60,6 +56,39 @@ struct RenderItem
     bool UseLOD = true;
     float LODThreshold = 50.0f;
     std::string Name;
+    bool Visible = false;
+};
+
+struct LightItem {
+    LightItem() = default;
+    SimpleMath::Matrix World;
+
+    // Dirty flag indicating the object data has changed and we need to update the constant buffer.
+    // Because we have an object cbuffer for each FrameResource, we have to apply the
+    // update to each FrameResource.  Thus, when we modify obect data we should set 
+    // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
+    int NumFramesDirty = gNumFrameResources;
+
+    // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
+    UINT ObjCBIndex = -1;
+    UINT LightCBIndex = -1;
+
+    MeshGeometry* Geo = nullptr;
+
+    // light settings
+    Light light;
+    UINT lightType;
+
+    // Choose PSO
+    std::string PSOType = "Opaque";
+    // Primitive topology.
+    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    // DrawIndexedInstanced parameters.
+    UINT IndexCount = 0;
+    UINT StartIndexLocation = 0;
+    int BaseVertexLocation = 0;
+
     bool Visible = false;
 };
 
@@ -115,6 +144,7 @@ private:
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateLightCB(const GameTimer& gt);
 
     void UpdateVisibleRenderItems();
     DirectX::BoundingBox ComputeBounds(const std::vector<Vertex>& verts);
@@ -122,6 +152,8 @@ private:
     Camera m_camera;
     UIManager m_uiManager;
     std::shared_ptr<InputDevice> m_inputDevice;
+
+    // GBuffer
     GBuffer m_gBuffer;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_rtvGBufferHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_dsvGBufferHeap;
@@ -158,7 +190,7 @@ private:
     std::vector<std::shared_ptr<RenderItem>> mTessRitems;
     std::vector<std::shared_ptr<RenderItem>> mNormalRitems;
     std::vector<std::shared_ptr<RenderItem>> mBasicRitems;
-    std::vector<std::shared_ptr<RenderItem>> mLightRitems;
+    std::vector<std::shared_ptr<LightItem>> mLightRitems;
 
     PassConstants mMainPassCB;;
 
