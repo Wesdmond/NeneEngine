@@ -144,6 +144,7 @@ private:
     void UpdateCamera(const GameTimer& gt);
     void AnimateMaterials(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
+    void UpdateLightBuffers(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightCB(const GameTimer& gt);

@@ -37,6 +37,7 @@ cbuffer LightBuf            : register(b2)
     Light LightData;
     uint gLightType;
     float pad[3];
+    float4x4 gLightWorld;
 }
 
 SamplerState Sampler        : register(s0);

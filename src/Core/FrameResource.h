@@ -49,6 +49,7 @@ struct LightData {
     Light light;
     UINT lightType;
     float pad[3];
+    DirectX::SimpleMath::Matrix WorldLight = MathHelper::Identity4x4();
 };
 
 // Stores the resources needed for the CPU to build the command lists

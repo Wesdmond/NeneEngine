@@ -252,11 +252,12 @@ void NeneApp::UpdateLightCB(const GameTimer& gt) {
             SimpleMath::Vector3 position, dump1;
             SimpleMath::Quaternion dump2;
             //e->World.Decompose(dump1, dump2, position);
-            e->World = Matrix::CreateTranslation(position);
 
+            //e->World = SimpleMath::Matrix::CreateTranslation(e->light.Position);
             LightData lightConstants;
             lightConstants.light = e->light;
             lightConstants.lightType = e->lightType;
+            //lightConstants.WorldLight = e->World;
 
             currLightCB->CopyData(e->LightCBIndex, lightConstants);
 
@@ -405,6 +406,7 @@ void NeneApp::Update(const GameTimer& gt)
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
     UpdateLightCB(gt);
+    //UpdateLightBuffers(gt);
     //UpdateVisibleRenderItems();
 }
 
@@ -1986,23 +1988,23 @@ void NeneApp::DrawDeffered()
         m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
     }
 
-    m_commandList->SetPipelineState(mPSOs["lightingShapes"].Get());
-    // Debug rendering
-    for (const auto& lightItem : mLightRitems)
-    {
-        if (lightItem->lightType != LightTypes::AMBIENT && lightItem->lightType != LightTypes::DIRECTIONAL)
-        {
-            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
-            D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
-            m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
-            m_commandList->SetGraphicsRootConstantBufferView(2, lightCBAddress);
+    //m_commandList->SetPipelineState(mPSOs["lightingShapes"].Get());
+    //// Debug rendering
+    //for (const auto& lightItem : mLightRitems)
+    //{
+    //    if (lightItem->lightType != LightTypes::AMBIENT && lightItem->lightType != LightTypes::DIRECTIONAL)
+    //    {
+    //        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
+    //        D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
+    //        m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+    //        m_commandList->SetGraphicsRootConstantBufferView(2, lightCBAddress);
 
-            m_commandList->IASetVertexBuffers(0, 1, &lightItem->Geo->VertexBufferView());
-            m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
-            m_commandList->IASetPrimitiveTopology(lightItem->PrimitiveType);
-            m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
-        }
-    }
+    //        m_commandList->IASetVertexBuffers(0, 1, &lightItem->Geo->VertexBufferView());
+    //        m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
+    //        m_commandList->IASetPrimitiveTopology(lightItem->PrimitiveType);
+    //        m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
+    //    }
+    //}
 
     m_gBuffer.Unbind(m_commandList.Get());
 }
