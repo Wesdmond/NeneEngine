@@ -28,9 +28,15 @@ void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
 
 void GBuffer::BindForGeometryPass(ID3D12GraphicsCommandList* cmdList)
 {
+    float clearValue[3][4] = {
+        {0, 0, 0, 1},
+        {0, 0, 1, 0},
+        {0, 0, 0, 0}
+    };
+    int ind = 0;
     // Clear RTs
     for (auto& rtv : m_rtvHandles) {
-        cmdList->ClearRenderTargetView(rtv, DirectX::Colors::Black, 0, nullptr);  // Или подходящие цвета
+        cmdList->ClearRenderTargetView(rtv, clearValue[ind++], 0, nullptr);  // Или подходящие цвета
     }
     cmdList->ClearDepthStencilView(m_dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 

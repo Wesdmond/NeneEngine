@@ -70,7 +70,8 @@ VertexOut VS(VertexIn vin)
 }
 
 float3 ComputeWorldlPos(float2 uv, float depth)
-{        
+{
+    uv *= gInvRenderTargetSize;
     float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
     float4 clip = float4(ndc, depth, 1.0f);
     float4 world = mul(clip, gInvViewProj);
@@ -94,14 +95,15 @@ GBufferData ReadGBuffer(float2 screenPos)
 {
     GBufferData buf = (GBufferData) 0;
     
-    buf.Albedo = DiffuseMap.Load(float3(screenPos, 0));
-    buf.Normal = NormalMap.Load(float3(screenPos, 0));
-    buf.Roughness = RoughnessMap.Load(float3(screenPos, 0));
-    buf.Depth = DepthMap.Load(float3(screenPos, 0));
+    buf.Albedo      = DiffuseMap.Load(float3(screenPos, 0));
+    buf.Normal      = NormalMap.Load(float3(screenPos, 0));
+    buf.Roughness   = RoughnessMap.Load(float3(screenPos, 0));
+    buf.Depth       = DepthMap.Load(float3(screenPos, 0));
     
     return buf;
 }
 
+[earlydepthstencil]
 float4 PS(VertexOut pin)    : SV_TARGET
 {
     float2 texC = pin.PosH.xy * gInvRenderTargetSize;
@@ -110,7 +112,7 @@ float4 PS(VertexOut pin)    : SV_TARGET
     float3 posW = ComputeWorldlPos(pin.PosH.xy, buf.Depth.r);
 
     float3 toEye = normalize(gEyePosW - posW);
-    const float shininess = 1.0f - 0.8; // TODO: Add buf.Roughness
+    const float shininess = 1.0f - buf.Roughness.r;
     Material mat = { buf.Albedo, float3(0.01f, 0.01f, 0.01), shininess };
     float3 shadowFactor = 1.0f;
 
@@ -134,4 +136,9 @@ float4 PS(VertexOut pin)    : SV_TARGET
     }
 
     return float4(lighting, 1.0f);
+}
+
+float4 PS_debug(VertexOut pin)  : SV_TARGET
+{
+    return float4(1, 1, 1, 1);
 }

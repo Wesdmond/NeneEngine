@@ -230,7 +230,7 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.FarZ = m_camera.GetFarZ();
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
-    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.25f, 1.0f };
+    mMainPassCB.AmbientLight = { 0.05f, 0.05f, 0.05f, 1.0f };
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -242,12 +242,17 @@ void NeneApp::UpdateLightCB(const GameTimer& gt) {
     {
         // Only update the cbuffer data if the constants have changed.  
         // This needs to be tracked per frame resource.
-        if (e->NumFramesDirty > 0)
+        if (e->NumFramesDirtyLight > 0)
         {
+            if (e->LightCBIndex == UINT(-1))
+            {
+                std::cout << "ERROR: Invalid LightCBIndex for light!" << std::endl;
+                continue;
+            }
             SimpleMath::Vector3 position, dump1;
             SimpleMath::Quaternion dump2;
-            e->World.Decompose(dump1, dump2, position);
-            e->light.Position = position;
+            //e->World.Decompose(dump1, dump2, position);
+            e->World = Matrix::CreateTranslation(position);
 
             LightData lightConstants;
             lightConstants.light = e->light;
@@ -256,7 +261,7 @@ void NeneApp::UpdateLightCB(const GameTimer& gt) {
             currLightCB->CopyData(e->LightCBIndex, lightConstants);
 
             // Next FrameResource need to be updated too.
-            e->NumFramesDirty--;
+            e->NumFramesDirtyLight--;
         }
     }
 }
@@ -897,6 +902,7 @@ void NeneApp::BuildShadersAndInputLayout()
     mShaders["deferredGeoPS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "PS", "ps_5_1");
     mShaders["deferredLightVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLight.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["deferredLightPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLight.hlsl", nullptr, "PS", "ps_5_1");
+    mShaders["deferredLightPSDebug"] = d3dUtil::CompileShader(L"Shaders\\DeferredLight.hlsl", nullptr, "PS_debug", "ps_5_1");
 
     mInputLayout =
     {
@@ -1534,8 +1540,8 @@ void NeneApp::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredLightOffDesc = {};
     deferredLightOffDesc.InputLayout = { lightInputLayout, _countof(lightInputLayout) };
     deferredLightOffDesc.VS = { reinterpret_cast<BYTE*>(mShaders["deferredLightVS"]->GetBufferPointer()), mShaders["deferredLightVS"]->GetBufferSize() };
-    deferredLightOffDesc.PS = { reinterpret_cast<BYTE*>(mShaders["deferredLightPS"]->GetBufferPointer()), mShaders["deferredLightPS"]->GetBufferSize() };  // Assuming DeferredPS is your lighting shader
-    deferredLightOffDesc.pRootSignature = m_defferedRootSignature.Get();  // Your deferred root sig
+    deferredLightOffDesc.PS = { reinterpret_cast<BYTE*>(mShaders["deferredLightPS"]->GetBufferPointer()), mShaders["deferredLightPS"]->GetBufferSize() };
+    deferredLightOffDesc.pRootSignature = m_defferedRootSignature.Get();
     deferredLightOffDesc.RTVFormats[0] = m_backBufferFormat;
     deferredLightOffDesc.NumRenderTargets = 1;
     deferredLightOffDesc.SampleDesc.Count = 1;
@@ -1543,40 +1549,30 @@ void NeneApp::BuildPSOs()
     deferredLightOffDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     deferredLightOffDesc.DSVFormat = m_depthStencilFormat;
     deferredLightOffDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    deferredLightOffDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;  // For full-screen
-    //deferredLightOffDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    deferredLightOffDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;  // For full-screen
 
     D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
+    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;;	// RGB + A
     rtBlendDesc.BlendEnable = TRUE;
     rtBlendDesc.LogicOpEnable = FALSE;
+    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
     rtBlendDesc.SrcBlend = D3D12_BLEND_ONE;								// src * 1
     rtBlendDesc.DestBlend = D3D12_BLEND_ONE;							// dest * 1
-    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
     rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
-    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ONE;
-    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-    rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;	// RGB + A
+    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
 
     D3D12_BLEND_DESC blendDesc = {};
     blendDesc.AlphaToCoverageEnable = FALSE;
     blendDesc.IndependentBlendEnable = FALSE;
     blendDesc.RenderTarget[0] = rtBlendDesc;
     deferredLightOffDesc.BlendState = blendDesc;
-    //deferredLightOffDesc.BlendState.RenderTarget[0].BlendEnable = true;  // No blend for dir (base)
-    //deferredLightOffDesc.BlendState.RenderTarget[0].LogicOpEnable = FALSE;
-    //deferredLightOffDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;								// src * 1
-    //deferredLightOffDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;							// dest * 1
-    //deferredLightOffDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-    //deferredLightOffDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-    //deferredLightOffDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
-    //deferredLightOffDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-    //deferredLightOffDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;	// RGB + A
     deferredLightOffDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     deferredLightOffDesc.DepthStencilState.DepthEnable = FALSE;  // No depth for full-screen
     deferredLightOffDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&deferredLightOffDesc, IID_PPV_ARGS(&mPSOs["DeferredLightDepthOff"])));
 
-    // Deferred light PSO: Depth test ON, no write, additive blend (for point/spot volumes)
+    // Deferred light PSO: with depth (NOT USED)
     auto deferredLightOnDesc = deferredLightOffDesc;
     deferredLightOnDesc.DepthStencilState.DepthEnable = TRUE;
     deferredLightOnDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
@@ -1587,8 +1583,21 @@ void NeneApp::BuildPSOs()
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC lightQUADPsoDesc = deferredLightOffDesc;
     lightQUADPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    lightQUADPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&lightQUADPsoDesc, IID_PPV_ARGS(&mPSOs["lightQUADPsoDesc"])));
    
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC lightShapesPsoDesc = deferredLightOffDesc;
+    lightShapesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    dsDesc.DepthEnable = TRUE;
+    dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    lightShapesPsoDesc.DepthStencilState = dsDesc;
+    lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["deferredLightPSDebug"]->GetBufferPointer()),
+                        mShaders["deferredLightPSDebug"]->GetBufferSize() };
+
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
 }
 
 void NeneApp::BuildTextureSRVs()
@@ -1756,9 +1765,10 @@ void NeneApp::BuildRenderItems()
     dirRI->IndexCount = quadGeo->DrawArgs["lightQuad"].IndexCount;
     dirRI->StartIndexLocation = quadGeo->DrawArgs["lightQuad"].StartIndexLocation;
     dirRI->BaseVertexLocation = quadGeo->DrawArgs["lightQuad"].BaseVertexLocation;
-    dirRI->PSOType = "DeferredLightDepthOff";
+    dirRI->PSOType = "lightQUADPsoDesc";
     dirRI->Visible = true;
     dirRI->NumFramesDirty = gNumFrameResources;
+    dirRI->NumFramesDirtyLight = gNumFrameResources;
     dirRI->lightType = LightTypes::DIRECTIONAL;
     dirRI->light.Direction = { 0.0f, -1.0f, 0.0f };
     dirRI->light.Strength = { 1.0f, 1.0f, 1.0f };
@@ -1766,9 +1776,14 @@ void NeneApp::BuildRenderItems()
 
     // Point light RI (scale to falloff, pos static)
     auto pointRI = std::make_shared<LightItem>();
-    XMMATRIX pointS = XMMatrixScaling(1.0f, 1.0f, 1.0f);  // Match FalloffEnd
-    XMMATRIX pointT = XMMatrixTranslation(0.0f, 1.0f, 0.0f);  // Static world pos
-    XMStoreFloat4x4(&pointRI->World, pointS * pointT);
+    pointRI->lightType = LightTypes::POINTLIGHT;
+    pointRI->light.Position = { 0.0f, 1.0f, 0.0f };
+    pointRI->light.FalloffStart = 1.0f;
+    pointRI->light.FalloffEnd = 5.0f;
+    pointRI->light.Strength = { 1.0f, 0.0f, 0.0f };
+    Matrix pointS = Matrix::CreateScale(4.0f, 4.0f, 4.0f);  // Match FalloffEnd
+    Matrix pointT = Matrix::CreateTranslation(pointRI->light.Position);  // Static world pos
+    pointRI->World = pointS * pointT;
     pointRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
     pointRI->LightCBIndex = (UINT)mLightRitems.size();
     pointRI->Geo = sphereGeo;
@@ -1779,19 +1794,22 @@ void NeneApp::BuildRenderItems()
     pointRI->PSOType = "DeferredLightDepthOff";
     pointRI->Visible = true;
     pointRI->NumFramesDirty = gNumFrameResources;
-    pointRI->lightType = LightTypes::POINTLIGHT;
-    pointRI->light.Position = { 0.0f, 1.0f, 0.0f };
-    pointRI->light.FalloffStart = 20.0f;
-    pointRI->light.FalloffEnd = 200.0f;
-    pointRI->light.Strength = { 1.0f, 1.0f, 1.0f };
+    pointRI->NumFramesDirtyLight = gNumFrameResources;
     mLightRitems.push_back(pointRI);
 
     // Spot light RI (scale/rotate to match dir/falloff)
     auto spotRI = std::make_shared<LightItem>();
-    XMMATRIX spotR = XMMatrixRotationX(XM_PI);  // Point down (-Y)
-    XMMATRIX spotS = XMMatrixScaling(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
-    XMMATRIX spotT = XMMatrixTranslation(10.0f, 10.0f, -5.0f);
-    XMStoreFloat4x4(&spotRI->World, spotT);
+    Matrix spotR = Matrix::CreateRotationX(XM_PI);  // Point down (-Y)
+    Matrix spotS = Matrix::CreateScale(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
+    Matrix spotT = Matrix::CreateTranslation(10.0f, 10.0f, -5.0f);
+    spotRI->World = spotT;
+    spotRI->lightType = LightTypes::SPOTLIGHT;
+    spotRI->light.Position = { 10.0f, 10.0f, -5.0f };
+    spotRI->light.FalloffStart = 1.0f;
+    spotRI->light.FalloffEnd = 20.0f;
+    spotRI->light.Direction = { 0.0f, -1.0f, 0.0f };
+    spotRI->light.SpotPower = 10.0f;
+    spotRI->light.Strength = { 1.0f, 1.0f, 1.0f };
     spotRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
     spotRI->LightCBIndex = (UINT)mLightRitems.size();
     spotRI->Geo = cylGeo;
@@ -1802,13 +1820,7 @@ void NeneApp::BuildRenderItems()
     spotRI->PSOType = "DeferredLightDepthOff";
     spotRI->Visible = true;
     spotRI->NumFramesDirty = gNumFrameResources;
-    spotRI->lightType = LightTypes::SPOTLIGHT;
-    spotRI->light.Position = { 10.0f, 10.0f, -5.0f };
-    spotRI->light.FalloffStart = 1.0f;
-    spotRI->light.FalloffEnd = 20.0f;
-    spotRI->light.Direction = { 0.0f, -1.0f, 0.0f };
-    spotRI->light.SpotPower = 10.0f;
-    spotRI->light.Strength = { 1.0f, 1.0f, 1.0f };
+    spotRI->NumFramesDirtyLight = gNumFrameResources;
     mLightRitems.push_back(spotRI);
 
     //for (int i = 0; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
@@ -1956,10 +1968,10 @@ void NeneApp::DrawDeffered()
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightData));
+    auto objCB = mCurrFrameResource->ObjectCB->Resource();
+    auto lightCB = mCurrFrameResource->LightCB->Resource();
     for (const auto& lightItem : mLightRitems)
     {
-        auto objCB = mCurrFrameResource->ObjectCB->Resource();
-        auto lightCB = mCurrFrameResource->LightCB->Resource();
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
         D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
         m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
@@ -1972,6 +1984,24 @@ void NeneApp::DrawDeffered()
         m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
         m_commandList->IASetPrimitiveTopology(lightItem->PrimitiveType);
         m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
+    }
+
+    m_commandList->SetPipelineState(mPSOs["lightingShapes"].Get());
+    // Debug rendering
+    for (const auto& lightItem : mLightRitems)
+    {
+        if (lightItem->lightType != LightTypes::AMBIENT && lightItem->lightType != LightTypes::DIRECTIONAL)
+        {
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
+            m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+            m_commandList->SetGraphicsRootConstantBufferView(2, lightCBAddress);
+
+            m_commandList->IASetVertexBuffers(0, 1, &lightItem->Geo->VertexBufferView());
+            m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
+            m_commandList->IASetPrimitiveTopology(lightItem->PrimitiveType);
+            m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
+        }
     }
 
     m_gBuffer.Unbind(m_commandList.Get());
@@ -2185,7 +2215,74 @@ void NeneApp::DrawUI()
     }
     ImGui::End();
 
+    if (ImGui::Begin("Lights Control"))
+    {
+        static int selectedLightIndex = 0;  // Выбранный свет (dropdown)
+        if (mLightRitems.empty())
+        {
+            ImGui::Text("No lights available");
+        }
+        else
+        {
+            // Dropdown для выбора света
+            const char* lightNames[3] = { "Directional", "Point", "Spot" };  // По lightType (предполагая 3 света)
+            if (ImGui::BeginCombo("Select Light", lightNames[selectedLightIndex]))
+            {
+                for (int i = 0; i < mLightRitems.size(); ++i)
+                {
+                    bool isSelected = (selectedLightIndex == i);
+                    if (ImGui::Selectable(lightNames[mLightRitems[i]->lightType - 1], &isSelected))
+                    {
+                        selectedLightIndex = i;
+                    }
+                    if (isSelected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
 
+            auto* selectedLight = mLightRitems[selectedLightIndex].get();
+            if (selectedLight)
+            {
+                // Чекбокс для debug-геометрии
+                ImGui::Checkbox("Draw Debug Geometry", &selectedLight->IsDrawingDebugGeometry);
+
+                // Слайдеры для позиции (движение света)
+                ImGui::Text("Position:");
+                bool posChanged = false;
+                posChanged |= ImGui::SliderFloat("X", &selectedLight->light.Position.x, -50.0f, 50.0f, "%.2f");
+                posChanged |= ImGui::SliderFloat("Y", &selectedLight->light.Position.y, -50.0f, 50.0f, "%.2f");
+                posChanged |= ImGui::SliderFloat("Z", &selectedLight->light.Position.z, -50.0f, 50.0f, "%.2f");
+
+                // Слайдеры для цвета (Strength)
+                ImGui::Text("Color (Strength):");
+                bool colorChanged = false;
+                colorChanged |= ImGui::SliderFloat("R", &selectedLight->light.Strength.x, 0.0f, 5.0f, "%.2f");
+                colorChanged |= ImGui::SliderFloat("G", &selectedLight->light.Strength.y, 0.0f, 5.0f, "%.2f");
+                colorChanged |= ImGui::SliderFloat("B", &selectedLight->light.Strength.z, 0.0f, 5.0f, "%.2f");
+
+                // Применение изменений (dirty flags)
+                if (posChanged)
+                {
+                    selectedLight->NumFramesDirty = gNumFrameResources;       // Для ObjectCB (World)
+                }
+                if (colorChanged || posChanged)  // Position тоже в LightData
+                {
+                    selectedLight->NumFramesDirtyLight = gNumFrameResources;  // Для LightCB
+                }
+
+                // Опционально: Кнопка "Reset"
+                if (ImGui::Button("Reset Light"))
+                {
+                    selectedLight->light.Position = XMFLOAT3(0.0f, 0.0f, 0.0f);
+                    selectedLight->light.Strength = XMFLOAT3(0.5f, 0.5f, 0.5f);
+                    selectedLight->NumFramesDirty = gNumFrameResources;
+                    selectedLight->NumFramesDirtyLight = gNumFrameResources;
+                }
+            }
+        }
+    }
+    ImGui::End();
 
     m_uiManager.Render(m_commandList.Get());
 }

@@ -28,7 +28,10 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE m_srvGpuHeapStart;
     D3D12_CPU_DESCRIPTOR_HANDLE m_rtvHeapStart;
 
-    // RTV for G-Buffer: 0-Position (RGBA32F), 1-Normal (RGBA32F), 2-Albedo (RGBA8UN), 3-Spec (R32F for roughness + GBA for FresnelR0)
+    // RTV for G-Buffer:
+    // 0-Albedo (RGBA8UN)
+    // 1-Normal (RGBA32F)
+    // 3-Spec (R32F for roughness + GBA for FresnelR0)
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_gbufferTextures;
     std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> m_rtvHandles;
     std::vector<D3D12_GPU_DESCRIPTOR_HANDLE> m_gbufferSRVs;  // SRV для lighting pass
