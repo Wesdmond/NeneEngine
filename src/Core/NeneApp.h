@@ -19,9 +19,9 @@ struct RenderItem
     // World matrix of the shape that describes the object's local space
     // relative to the world space, which defines the position, orientation,
     // and scale of the object in the world.
-    XMFLOAT4X4 World = MathHelper::Identity4x4();
+    SimpleMath::Matrix World        = SimpleMath::Matrix::Identity;
+    SimpleMath::Matrix TexTransform = SimpleMath::Matrix::Identity;
 
-	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
 	// Dirty flag indicating the object data has changed and we need to update the constant buffer.
 	// Because we have an object cbuffer for each FrameResource, we have to apply the
@@ -155,7 +155,6 @@ private:
     void UpdateCamera(const GameTimer& gt);
     void AnimateMaterials(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
-    void UpdateLightBuffers(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightCB(const GameTimer& gt);
@@ -208,8 +207,8 @@ private:
 
     PassConstants mMainPassCB;;
 
-    XMFLOAT4X4 mView = MathHelper::Identity4x4();
-    XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+    SimpleMath::Matrix mView = SimpleMath::Matrix::Identity;
+    SimpleMath::Matrix mProj = SimpleMath::Matrix::Identity;
 
     UINT mPassCbvOffset = 0;
 
@@ -238,7 +237,7 @@ private:
     float m_mouseSensitivity = 0.005f;
 
     // Inputs
-    DirectX::SimpleMath::Vector2 m_mousePos = DirectX::SimpleMath::Vector2::Zero;
-    DirectX::SimpleMath::Vector2 m_mouseDelta = DirectX::SimpleMath::Vector2::Zero;
+    DirectX::SimpleMath::Vector2 m_mousePos     = DirectX::SimpleMath::Vector2::Zero;
+    DirectX::SimpleMath::Vector2 m_mouseDelta   = DirectX::SimpleMath::Vector2::Zero;
     float m_mouseWheelDelta;
 };

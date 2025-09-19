@@ -6,14 +6,8 @@
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
-cbuffer cbPerObject         : register(b0)
-{
-    float4x4 gWorld;
-    float4x4 gTexTransform;
-};
-
 // Constant data that varies per material.
-cbuffer cbPass              : register(b1)
+cbuffer cbPass              : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;
@@ -32,11 +26,11 @@ cbuffer cbPass              : register(b1)
     float4  gAmbientLight;
 };
 
-cbuffer LightBuf            : register(b2)
+cbuffer LightBuf            : register(b1)
 {
     Light LightData;
     uint gLightType;
-    float pad[3];
+    float3 pad;
     float4x4 gLightWorld;
 }
 
@@ -52,6 +46,7 @@ struct VertexIn
 struct VertexOut
 {
     float4 PosH             : SV_POSITION;
+    float4 PosW             : POSITION;
 };
 
 VertexOut VS(VertexIn vin)
@@ -64,15 +59,15 @@ VertexOut VS(VertexIn vin)
     }
     else
     {
-        float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+        float4 posW = mul(float4(vin.PosL, 1.0f), gLightWorld);
         vout.PosH = mul(posW, gViewProj);
+        vout.PosW = posW;
     }
     return vout;
 }
 
 float3 ComputeWorldlPos(float2 uv, float depth)
 {
-    uv *= gInvRenderTargetSize;
     float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
     float4 clip = float4(ndc, depth, 1.0f);
     float4 world = mul(clip, gInvViewProj);
@@ -107,10 +102,12 @@ GBufferData ReadGBuffer(float2 screenPos)
 [earlydepthstencil]
 float4 PS(VertexOut pin)    : SV_TARGET
 {
+    //if (!(gLightType == AMBIENT || gLightType == DIRECTIONAL))
+    //    return pin.PosW;
     float2 texC = pin.PosH.xy * gInvRenderTargetSize;
     
     GBufferData buf = ReadGBuffer(pin.PosH.xy);
-    float3 posW = ComputeWorldlPos(pin.PosH.xy, buf.Depth.r);
+    float3 posW = ComputeWorldlPos(texC, buf.Depth.r);
 
     float3 toEye = normalize(gEyePosW - posW);
     const float shininess = 1.0f - buf.Roughness.r;

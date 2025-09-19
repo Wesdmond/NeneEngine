@@ -44,13 +44,13 @@ bool NeneApp::Initialize()
     BuildMaterials();
     BuildLightGeometries();
     BuildBoxGeometry();
-    BuildManyBoxes(5000);
+    //BuildManyBoxes(5000);
     //BuildDisplacementTestGeometry();
     //BuildPlane(10.f, 10.f, 8, 8, "highMountain", "mountain", CreateTransformMatrix(-11, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     //BuildPlane(10.f, 10.f, 1, 1, "lowMountain", "mountain", CreateTransformMatrix(0, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
-    //BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    //BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    //LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -0.f, 0.f));
+    BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -0.f, 0.f));
     //LoadObjModel("assets/hangar/hangar.obj", CreateTransformMatrix(0, 0, 0));
     BuildRenderItems();
     BuildFrameResources();
@@ -94,7 +94,7 @@ void NeneApp::OnResize()
 
     // The window resized, so update the aspect ratio and recompute the projection matrix.
     XMMATRIX P = XMMatrixPerspectiveFovLH(m_camera.GetFovY(), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
-    XMStoreFloat4x4(&mProj, P);
+    mProj = P;
 }
 
 void NeneApp::UpdateInputs(const GameTimer& gt)
@@ -127,8 +127,8 @@ void NeneApp::UpdateInputs(const GameTimer& gt)
 void NeneApp::UpdateCamera(const GameTimer& gt)
 {
     m_camera.UpdateViewMatrix();
-    XMStoreFloat4x4(&mView, m_camera.GetView());
-    XMStoreFloat4x4(&mProj, m_camera.GetProj());
+    mView = m_camera.GetView();
+    mProj = m_camera.GetProj();
 
     // TODO: Add debug: std::cout << "Camera Pos: " << m_camera.GetPosition3f().x << ", " << m_camera.GetPosition3f().y << ", " << m_camera.GetPosition3f().z << std::endl;
 }
@@ -146,12 +146,21 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
         // This needs to be tracked per frame resource.
         if (e->NumFramesDirty > 0)
         {
-            XMMATRIX world = XMLoadFloat4x4(&e->World);
-            XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
+            SubmeshGeometry mesh;
+            if (!e->SubmeshName.empty()) {
+                mesh = e->CurrentGeo->DrawArgs[e->SubmeshName];
+            }
+            else {
+                if (e->CurrentGeo)
+                    mesh = e->CurrentGeo->DrawArgs.begin()->second;
+                else
+                    mesh = e->Geo->DrawArgs.begin()->second;
+            }
+            mesh.Bounds.Transform(mesh.Bounds, e->World);
 
             ObjectConstants objConstants;
-            XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
-            XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+            objConstants.World = e->World.Transpose();
+            objConstants.TexTransform = e->TexTransform.Transpose();
 
             currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
@@ -165,10 +174,8 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
         // This needs to be tracked per frame resource.
         if (e->NumFramesDirty > 0)
         {
-            XMMATRIX world = XMLoadFloat4x4(&e->World);
-
             ObjectConstants objConstants;
-            XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+            objConstants.World = e->World.Transpose();
 
             currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
@@ -209,28 +216,36 @@ void NeneApp::UpdateMaterialCBs(const GameTimer& gt)
 
 void NeneApp::UpdateMainPassCB(const GameTimer& gt)
 {
-    XMMATRIX view = XMLoadFloat4x4(&mView);
-    XMMATRIX proj = XMLoadFloat4x4(&mProj);
+    //XMMATRIX view = XMLoadFloat4x4(&mView);
+    //XMMATRIX proj = XMLoadFloat4x4(&mProj);
 
-    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-    XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+    //XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    //XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    //XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    //XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
 
-    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
-    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
-    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
-    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
-    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
-    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-    XMStoreFloat3(&mMainPassCB.EyePosW, m_camera.GetPosition());
-    mMainPassCB.RenderTargetSize = XMFLOAT2((float)m_clientWidth, (float)m_clientHeight);
-    mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
+    //XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    //XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    //XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    //XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    //XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    //XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    //XMStoreFloat3(&mMainPassCB.EyePosW, m_camera.GetPosition());
+
+    mMainPassCB.View = mView.Transpose();
+    mMainPassCB.InvView = mView.Invert().Transpose();
+    mMainPassCB.Proj = mProj.Transpose();
+    mMainPassCB.InvProj = mProj.Invert().Transpose();
+    mMainPassCB.ViewProj = (mView * mProj).Transpose();
+    mMainPassCB.InvViewProj = mMainPassCB.ViewProj.Invert();
+    mMainPassCB.EyePosW = m_camera.GetPosition();
+    mMainPassCB.RenderTargetSize = Vector2((float)m_clientWidth, (float)m_clientHeight);
+    mMainPassCB.InvRenderTargetSize = Vector2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
     mMainPassCB.NearZ = m_camera.GetNearZ();
     mMainPassCB.FarZ = m_camera.GetFarZ();
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
-    mMainPassCB.AmbientLight = { 0.05f, 0.05f, 0.05f, 1.0f };
+    mMainPassCB.AmbientLight = Color(0.05f, 0.05f, 0.05f, 1.0f);
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -247,20 +262,18 @@ void NeneApp::UpdateLightCB(const GameTimer& gt) {
             if (e->LightCBIndex == UINT(-1))
             {
                 std::cout << "ERROR: Invalid LightCBIndex for light!" << std::endl;
-                continue;
+                throw std::runtime_error("ERROR: Invalid LightCBIndex for light!");
             }
-            SimpleMath::Vector3 position, dump1;
-            SimpleMath::Quaternion dump2;
-            //e->World.Decompose(dump1, dump2, position);
 
-            //e->World = SimpleMath::Matrix::CreateTranslation(e->light.Position);
+            e->World = SimpleMath::Matrix::CreateScale(e->light.FalloffEnd) * SimpleMath::Matrix::CreateTranslation(e->light.Position);
+
             LightData lightConstants;
             lightConstants.light = e->light;
             lightConstants.lightType = e->lightType;
-            //lightConstants.WorldLight = e->World;
+            lightConstants.WorldLight = e->World.Transpose();
+
 
             currLightCB->CopyData(e->LightCBIndex, lightConstants);
-
             // Next FrameResource need to be updated too.
             e->NumFramesDirtyLight--;
         }
@@ -278,58 +291,63 @@ void NeneApp::UpdateVisibleRenderItems()
 
     Vector3 eyePos = mMainPassCB.EyePosW;
 
-    for (auto& ri : mAllRitems)
-    {
-        //if (ri->Name == "Box") {
-        //    std::cout << " Test " << std::endl;
-        //}
-        Matrix worldMat = ri->World;
-        BoundingBox totalBounds;
-        bool first = true;
+    //RebuildOctreeIfNeeded();  // Rebuild if flagged (e.g., after ImGui edits)
 
-        if (!ri->SubmeshName.empty()) {
-            totalBounds = ri->Geo->DrawArgs.at(ri->SubmeshName).Bounds;
-        }
-        else
-            totalBounds = ri->Geo->DrawArgs.begin()->second.Bounds;
-
-
-        bool visible = true;
-        if (mUseFrustumCulling)
+    if (mOctreeRoot) {
+        // Traverse octree for culling
+        CollectVisibleItems(mOctreeRoot.get(), frustum, mVisibleRitems, eyePos);
+    }
+    else {
+        // Fallback to linear if no octree
+        for (auto& ri : mAllRitems)
         {
-            totalBounds.Transform(totalBounds, worldMat * viewMat);
-            visible = frustum.Intersects(totalBounds);
-        }
-        ri->Visible = visible;
-        if (!visible)
-            continue;
+            Matrix worldMat = ri->World;
+            BoundingBox bound;
 
-        Vector3 center = totalBounds.Center;
-        float dist = Vector3::Distance(center, eyePos);
+            if (!ri->SubmeshName.empty()) {
+                bound = ri->Geo->DrawArgs.at(ri->SubmeshName).Bounds;
+            }
+            else
+                bound = ri->Geo->DrawArgs.begin()->second.Bounds;
 
-        ri->CurrentGeo = ri->Geo;
-        if (ri->UseLOD)
-        {
-            if (dist > ri->LODThreshold)
-                ri->CurrentGeo = ri->GeoLow ? ri->GeoLow : ri->Geo;
-            else if (dist < ri->LODThreshold / 2)
-                ri->CurrentGeo = ri->GeoHigh ? ri->GeoHigh : ri->Geo;
+
+            bool visible = true;
+            if (mUseFrustumCulling)
+            {
+                bound.Transform(bound, worldMat * viewMat);
+                visible = frustum.Intersects(bound);
+            }
+            ri->Visible = visible;
+            if (!visible)
+                continue;
+
+            Vector3 center = bound.Center;
+            float dist = Vector3::Distance(center, eyePos);
+
+            ri->CurrentGeo = ri->Geo;
+            if (ri->UseLOD)
+            {
+                if (dist > ri->LODThreshold)
+                    ri->CurrentGeo = ri->GeoLow ? ri->GeoLow : ri->Geo;
+                else if (dist < ri->LODThreshold / 2)
+                    ri->CurrentGeo = ri->GeoHigh ? ri->GeoHigh : ri->Geo;
+                else
+                    ri->CurrentGeo = ri->Geo;
+            }
             else
                 ri->CurrentGeo = ri->Geo;
+
+            SubmeshGeometry drawArg;
+            if (!ri->SubmeshName.empty())
+                drawArg = ri->CurrentGeo->DrawArgs.at(ri->SubmeshName);
+            else
+                drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
+            ri->SelectedIndexCount = drawArg.IndexCount;
+            ri->SelectedStartIndexLocation = drawArg.StartIndexLocation;
+            ri->SelectedBaseVertexLocation = drawArg.BaseVertexLocation;
+
+            mVisibleRitems.push_back(ri);
         }
-        else
-            ri->CurrentGeo = ri->Geo;
-
-        SubmeshGeometry drawArg;
-        if (!ri->SubmeshName.empty())
-            drawArg = ri->CurrentGeo->DrawArgs.at(ri->SubmeshName);
-        else
-            drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
-        ri->SelectedIndexCount = drawArg.IndexCount;
-        ri->SelectedStartIndexLocation = drawArg.StartIndexLocation;
-        ri->SelectedBaseVertexLocation = drawArg.BaseVertexLocation;
-
-        mVisibleRitems.push_back(ri);
     }
 
     mTessRitems.clear();
@@ -378,7 +396,148 @@ DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
     return DirectX::BoundingBox(center, extents);
 }
 
+DirectX::BoundingBox NeneApp::ComputeRenderItemBounds(const std::shared_ptr<RenderItem>& ri) {
+    // Merge submesh bounds, transformed by World matrix
+    Matrix worldMat = ri->World;
+    DirectX::BoundingBox totalBounds;
 
+    if (!ri->SubmeshName.empty()) {
+        totalBounds = ri->Geo->DrawArgs.at(ri->SubmeshName).Bounds;
+    }
+    else
+        totalBounds = ri->Geo->DrawArgs.begin()->second.Bounds;
+    totalBounds.Transform(totalBounds, worldMat);
+    
+    return totalBounds;
+}
+
+void NeneApp::BuildOctree(const std::vector<std::shared_ptr<RenderItem>>& items, OctreeNode* node, int depth) {
+    if (items.empty() || depth >= mOctreeMaxDepth) {
+        // Leaf: Store items whose bounds intersect this node's AABB
+        for (auto& item : items) {
+            if (node->Bounds.Intersects(ComputeRenderItemBounds(item))) {
+                node->Items.push_back(item);
+            }
+        }
+        node->IsLeaf = true;
+        return;
+    }
+
+    // Subdivide into 8 children
+    DirectX::XMFLOAT3 center = node->Bounds.Center;
+    DirectX::XMFLOAT3 extents = node->Bounds.Extents;
+    float halfExtX = extents.x * 0.5f;
+    float halfExtY = extents.y * 0.5f;
+    float halfExtZ = extents.z * 0.5f;
+
+    // Define 8 child AABBs (standard octant split)
+    DirectX::XMFLOAT3 childCenters[8] = {
+        {center.x - halfExtX, center.y - halfExtY, center.z - halfExtZ},  // 0: (-x,-y,-z)
+        {center.x + halfExtX, center.y - halfExtY, center.z - halfExtZ},  // 1: (+x,-y,-z)
+        {center.x - halfExtX, center.y + halfExtY, center.z - halfExtZ},  // 2: (-x,+y,-z)
+        {center.x + halfExtX, center.y + halfExtY, center.z - halfExtZ},  // 3: (+x,+y,-z)
+        {center.x - halfExtX, center.y - halfExtY, center.z + halfExtZ},  // 4: (-x,-y,+z)
+        {center.x + halfExtX, center.y - halfExtY, center.z + halfExtZ},  // 5: (+x,-y,+z)
+        {center.x - halfExtX, center.y + halfExtY, center.z + halfExtZ},  // 6: (-x,+y,+z)
+        {center.x + halfExtX, center.y + halfExtY, center.z + halfExtZ}   // 7: (+x,+y,+z)
+    };
+
+    for (int i = 0; i < 8; ++i) {
+        DirectX::BoundingBox childBox(childCenters[i], { halfExtX, halfExtY, halfExtZ });
+        node->Children[i] = std::make_unique<OctreeNode>(childBox);
+        node->IsLeaf = false;
+    }
+
+    // Distribute items to children
+    std::vector<std::vector<std::shared_ptr<RenderItem>>> childItems(8);
+    for (auto& item : items) {
+        bool assigned = false;
+        for (int i = 0; i < 8; ++i) {
+            if (node->Children[i]->Bounds.Intersects(ComputeRenderItemBounds(item))) {
+                childItems[i].push_back(item);
+                assigned = true;
+                break;  // Assign to first intersecting child (loose octree for overlap tolerance, per [source 2])
+            }
+        }
+        if (!assigned) {
+            // Fallback to leaf if no child (rare)
+            node->Items.push_back(item);
+        }
+    }
+
+    // Recurse
+    for (int i = 0; i < 8; ++i) {
+        if (!childItems[i].empty()) {
+            BuildOctree(childItems[i], node->Children[i].get(), depth + 1);
+        }
+    }
+}
+
+void NeneApp::CollectVisibleItems(OctreeNode* node, const DirectX::BoundingFrustum& frustum, std::vector<std::shared_ptr<RenderItem>>& visibleItems, DirectX::XMVECTOR eyePos) {
+    if (!frustum.Intersects(node->Bounds)) return;  // Fully outside: prune
+
+    if (node->IsLeaf) {
+        // Add all items (fully inside or intersecting)
+        for (auto& ri : node->Items) {
+            // Per-item LOD check (keep your existing logic)
+            DirectX::BoundingBox itemBounds = ComputeRenderItemBounds(ri);
+            float dist = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&itemBounds.Center), eyePos)));
+            if (ri->UseLOD) {
+                if (dist > ri->LODThreshold) {
+                    ri->CurrentGeo = ri->GeoLow ? ri->GeoLow : ri->Geo;
+                }
+                else if (dist < ri->LODThreshold / 2) {
+                    ri->CurrentGeo = ri->GeoHigh ? ri->GeoHigh : ri->Geo;
+                }
+                else {
+                    ri->CurrentGeo = ri->Geo;
+                }
+            }
+            else {
+                ri->CurrentGeo = ri->Geo;
+            }
+            auto& drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
+            ri->SelectedIndexCount = drawArg.IndexCount;
+            ri->SelectedStartIndexLocation = drawArg.StartIndexLocation;
+            ri->SelectedBaseVertexLocation = drawArg.BaseVertexLocation;
+            ri->Visible = true;
+            visibleItems.push_back(ri);
+        }
+        return;
+    }
+
+    // Intersecting non-leaf: recurse
+    for (int i = 0; i < 8; ++i) {
+        if (node->Children[i]) {
+            CollectVisibleItems(node->Children[i].get(), frustum, visibleItems, eyePos);
+        }
+    }
+}
+
+void NeneApp::RebuildOctreeIfNeeded() {
+    if (!mRebuildOctree) return;
+
+    // Compute overall scene bounds
+    bool first = true;
+    for (auto& ri : mAllRitems) {
+        DirectX::BoundingBox itemBounds = ComputeRenderItemBounds(ri);
+        /*Matrix world = ri->World;
+        Matrix view = mView;
+        itemBounds.Transform(itemBounds, world * view);*/
+        if (first) {
+            mSceneBounds = itemBounds;
+            first = false;
+        }
+        else {
+            mSceneBounds.CreateMerged(mSceneBounds, mSceneBounds, itemBounds);
+        }
+    }
+
+    mOctreeRoot = std::make_unique<OctreeNode>(mSceneBounds);
+    BuildOctree(mAllRitems, mOctreeRoot.get(), 0);
+    mRebuildOctree = false;
+    std::cout << "Octree rebuilt: " << mAllRitems.size() << " items partitioned." << std::endl;
+}
 
 void NeneApp::Update(const GameTimer& gt)
 {
@@ -874,16 +1033,15 @@ void NeneApp::BuildRootSignature()
     gbufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0); // 3 G-Buffer + 1 Depth
 
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER deffered_slotRootParameter[4];
+    CD3DX12_ROOT_PARAMETER deffered_slotRootParameter[3];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     deffered_slotRootParameter[0].InitAsConstantBufferView(0);
     deffered_slotRootParameter[1].InitAsConstantBufferView(1);
-    deffered_slotRootParameter[2].InitAsConstantBufferView(2);
-    deffered_slotRootParameter[3].InitAsDescriptorTable(1, &gbufferTable, D3D12_SHADER_VISIBILITY_ALL);
+    deffered_slotRootParameter[2].InitAsDescriptorTable(1, &gbufferTable, D3D12_SHADER_VISIBILITY_ALL);
 
     // A root signature is an array of root parameters.
-    CD3DX12_ROOT_SIGNATURE_DESC deffered_rootSigDesc(4, deffered_slotRootParameter,
+    CD3DX12_ROOT_SIGNATURE_DESC deffered_rootSigDesc(3, deffered_slotRootParameter,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1795,7 +1953,7 @@ void NeneApp::BuildRenderItems()
     pointRI->light.FalloffStart = 1.0f;
     pointRI->light.FalloffEnd = 5.0f;
     pointRI->light.Strength = { 1.0f, 0.0f, 0.0f };
-    Matrix pointS = Matrix::CreateScale(4.0f, 4.0f, 4.0f);  // Match FalloffEnd
+    Matrix pointS = Matrix::CreateScale(pointRI->light.FalloffEnd);  // Match FalloffEnd
     Matrix pointT = Matrix::CreateTranslation(pointRI->light.Position);  // Static world pos
     pointRI->World = pointS * pointT;
     pointRI->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
@@ -1976,20 +2134,16 @@ void NeneApp::DrawDeffered()
     m_commandList->SetPipelineState(mPSOs["DeferredLightDepthOff"].Get());
     m_commandList->SetGraphicsRootSignature(m_defferedRootSignature.Get());
     auto srvHandles = m_gBuffer.GetSRVs();
-    m_commandList->SetGraphicsRootDescriptorTable(3, srvHandles[0]);
-    m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->SetGraphicsRootDescriptorTable(2, srvHandles[0]);
+    m_commandList->SetGraphicsRootConstantBufferView(0, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
 
-    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightData));
-    auto objCB = mCurrFrameResource->ObjectCB->Resource();
     auto lightCB = mCurrFrameResource->LightCB->Resource();
     for (const auto& lightItem : mLightRitems)
     {
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objCB->GetGPUVirtualAddress() + lightItem->ObjCBIndex * objCBByteSize;
         D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
-        m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
-        m_commandList->SetGraphicsRootConstantBufferView(2, lightCBAddress);
+        m_commandList->SetGraphicsRootConstantBufferView(1, lightCBAddress);
 
         // Set PSO by type
         m_commandList->SetPipelineState(mPSOs[lightItem->PSOType].Get());

@@ -6,36 +6,36 @@
 
 struct ObjectConstants
 {
-    DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+    DirectX::SimpleMath::Matrix World = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix TexTransform = DirectX::SimpleMath::Matrix::Identity;
 };
 
 struct PassConstants
 {
-    DirectX::XMFLOAT4X4 View = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 InvView = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 Proj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 InvProj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 InvViewProj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
+    DirectX::SimpleMath::Matrix View        = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix InvView     = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix Proj        = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix InvProj     = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix ViewProj    = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix InvViewProj = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Vector3 EyePosW    = DirectX::SimpleMath::Vector3::Zero;
     float cbPerObjectPad1 = 0.0f;
-    DirectX::XMFLOAT2 RenderTargetSize = { 0.0f, 0.0f };
-    DirectX::XMFLOAT2 InvRenderTargetSize = { 0.0f, 0.0f };
+    DirectX::SimpleMath::Vector2 RenderTargetSize       = DirectX::SimpleMath::Vector2::Zero;
+    DirectX::SimpleMath::Vector2 InvRenderTargetSize    = DirectX::SimpleMath::Vector2::Zero;
     float NearZ = 0.0f;
     float FarZ = 0.0f;
     float TotalTime = 0.0f;
     float DeltaTime = 0.0f;
 
-    DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+    DirectX::SimpleMath::Color AmbientLight; // {0, 0, 0, 1} by default
 };
 
 struct Vertex
 {
-    DirectX::XMFLOAT3 Pos;
-    DirectX::XMFLOAT3 Normal;
-    DirectX::XMFLOAT3 TangentU;
-    DirectX::XMFLOAT2 TexC;
+    DirectX::SimpleMath::Vector3 Pos;
+    DirectX::SimpleMath::Vector3 Normal;
+    DirectX::SimpleMath::Vector3 TangentU;
+    DirectX::SimpleMath::Vector2 TexC;
 };
 
 enum LightTypes {
@@ -49,7 +49,7 @@ struct LightData {
     Light light;
     UINT lightType;
     float pad[3];
-    DirectX::SimpleMath::Matrix WorldLight = MathHelper::Identity4x4();
+    DirectX::SimpleMath::Matrix WorldLight = DirectX::SimpleMath::Matrix::Identity;
 };
 
 // Stores the resources needed for the CPU to build the command lists
