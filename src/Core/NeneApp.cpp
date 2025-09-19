@@ -43,14 +43,14 @@ bool NeneApp::Initialize()
     LoadTextures();
     BuildMaterials();
     BuildLightGeometries();
-    //BuildBoxGeometry();
-    //BuildManyBoxes(10000);
+    BuildBoxGeometry();
+    BuildManyBoxes(5000);
     //BuildDisplacementTestGeometry();
     //BuildPlane(10.f, 10.f, 8, 8, "highMountain", "mountain", CreateTransformMatrix(-11, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     //BuildPlane(10.f, 10.f, 1, 1, "lowMountain", "mountain", CreateTransformMatrix(0, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     //BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     //BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -0.f, 0.f));
+    //LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -0.f, 0.f));
     //LoadObjModel("assets/hangar/hangar.obj", CreateTransformMatrix(0, 0, 0));
     BuildRenderItems();
     BuildFrameResources();
@@ -270,54 +270,61 @@ void NeneApp::UpdateLightCB(const GameTimer& gt) {
 void NeneApp::UpdateVisibleRenderItems()
 {
     mVisibleRitems.clear();
-    XMMATRIX viewMat = XMLoadFloat4x4(&mView);  // World → view
-    XMMATRIX projMat = XMLoadFloat4x4(&mProj);
+    Matrix viewMat = mView;
+    Matrix projMat = mProj;
 
     BoundingFrustum frustum;
     BoundingFrustum::CreateFromMatrix(frustum, projMat);
 
-    XMVECTOR eyePos = XMLoadFloat3(&mMainPassCB.EyePosW);
+    Vector3 eyePos = mMainPassCB.EyePosW;
 
     for (auto& ri : mAllRitems)
     {
-        XMMATRIX worldMat = XMLoadFloat4x4(&ri->World);
+        //if (ri->Name == "Box") {
+        //    std::cout << " Test " << std::endl;
+        //}
+        Matrix worldMat = ri->World;
         BoundingBox totalBounds;
         bool first = true;
-        for (const auto& drawArg : ri->Geo->DrawArgs) {
-            BoundingBox subBox = drawArg.second.Bounds;
-            subBox.Transform(subBox, worldMat);
-            if (first) { totalBounds = subBox; first = false; }
-            else { totalBounds.CreateMerged(totalBounds, totalBounds, subBox); }
+
+        if (!ri->SubmeshName.empty()) {
+            totalBounds = ri->Geo->DrawArgs.at(ri->SubmeshName).Bounds;
         }
+        else
+            totalBounds = ri->Geo->DrawArgs.begin()->second.Bounds;
+
 
         bool visible = true;
         if (mUseFrustumCulling)
         {
-            totalBounds.Transform(totalBounds, viewMat);
+            totalBounds.Transform(totalBounds, worldMat * viewMat);
             visible = frustum.Intersects(totalBounds);
         }
         ri->Visible = visible;
         if (!visible)
             continue;
 
-        XMVECTOR center = XMLoadFloat3(&totalBounds.Center);
-        float dist = XMVectorGetX(XMVector3Length(XMVectorSubtract(center, eyePos)));
+        Vector3 center = totalBounds.Center;
+        float dist = Vector3::Distance(center, eyePos);
 
-        if (ri->UseLOD) {
-            if (dist > ri->LODThreshold) {
+        ri->CurrentGeo = ri->Geo;
+        if (ri->UseLOD)
+        {
+            if (dist > ri->LODThreshold)
                 ri->CurrentGeo = ri->GeoLow ? ri->GeoLow : ri->Geo;
-            }
-            else if (dist < ri->LODThreshold / 2) {
+            else if (dist < ri->LODThreshold / 2)
                 ri->CurrentGeo = ri->GeoHigh ? ri->GeoHigh : ri->Geo;
-            }
-            else {
+            else
                 ri->CurrentGeo = ri->Geo;
-            }
         }
-        else {
+        else
             ri->CurrentGeo = ri->Geo;
-        }
-        auto& drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
+
+        SubmeshGeometry drawArg;
+        if (!ri->SubmeshName.empty())
+            drawArg = ri->CurrentGeo->DrawArgs.at(ri->SubmeshName);
+        else
+            drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
         ri->SelectedIndexCount = drawArg.IndexCount;
         ri->SelectedStartIndexLocation = drawArg.StartIndexLocation;
         ri->SelectedBaseVertexLocation = drawArg.BaseVertexLocation;
@@ -337,6 +344,7 @@ void NeneApp::UpdateVisibleRenderItems()
             mOpaqueRitems.push_back(ri);
     }
 }
+
 DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
 {
     if (verts.empty()) return DirectX::BoundingBox();
@@ -369,6 +377,8 @@ DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
 
     return DirectX::BoundingBox(center, extents);
 }
+
+
 
 void NeneApp::Update(const GameTimer& gt)
 {
@@ -407,7 +417,7 @@ void NeneApp::Update(const GameTimer& gt)
     UpdateMainPassCB(gt);
     UpdateLightCB(gt);
     //UpdateLightBuffers(gt);
-    //UpdateVisibleRenderItems();
+    UpdateVisibleRenderItems();
 }
 
 void NeneApp::Draw(const GameTimer& gt)
@@ -788,6 +798,7 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         }
         
         ritem->Name = drawArg.first + " (OBJ Submesh)";
+        ritem->SubmeshName = drawArg.first;
         ritem->UseLOD = false; // disable for obj by default
         ritem->LODThreshold = mLODDistanceThreshold;
         ritem->World = Transform;  // TODO: aiNode transform
@@ -1662,7 +1673,7 @@ void NeneApp::BuildMaterials()
     auto mat = std::make_unique<Material>();
     mat->Name = "error";
     mat->MatCBIndex = (int)mMaterials.size();
-    mat->DiffuseSrvHeapIndex = (int)mTextures.size();
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size() + 4;
     LoadTexture("assets/textures/texture_error.dds");
     mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
@@ -1673,7 +1684,7 @@ void NeneApp::BuildMaterials()
     mat = std::make_unique<Material>();
     mat->Name = "woodCrate";
     mat->MatCBIndex = (int)mMaterials.size();
-    mat->DiffuseSrvHeapIndex = (int)mTextures.size();;
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size() + 4;;
     LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
     mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
@@ -1684,7 +1695,7 @@ void NeneApp::BuildMaterials()
     mat = std::make_unique<Material>();
     mat->Name = "rock";
     mat->MatCBIndex = (int)mMaterials.size();
-    mat->DiffuseSrvHeapIndex = (int)mTextures.size();
+    mat->DiffuseSrvHeapIndex = (int)mTextures.size() + 4;
     LoadTexture("assets/textures/for_tesselation/rock.dds");
     mat->NormalSrvHeapIndex = (UINT)mTextures.size();
     mat->HasNormalMap = true;
@@ -1699,7 +1710,7 @@ void NeneApp::BuildMaterials()
 
     mat = std::make_unique<Material>();
     mat->Name = "rock";
-    mat->MatCBIndex = (int)mMaterials.size();
+    mat->MatCBIndex = (int)mMaterials.size() + 4;
     mat->DiffuseSrvHeapIndex = (int)mTextures.size();
     LoadTexture("assets/textures/for_tesselation/mountain_diff.dds");
     mat->NormalSrvHeapIndex = (UINT)mTextures.size();
@@ -1729,11 +1740,11 @@ XMMATRIX CreateRotationMatrixFromDirection(const XMFLOAT3& direction)
 
 void NeneApp::BuildRenderItems()
 {
-    /*auto boxRitem = std::make_shared<RenderItem>();
+    auto boxRitem = std::make_shared<RenderItem>();
     boxRitem->Name = "Box";
-    boxRitem->ObjCBIndex = (int)mAllRitems.size();
+    boxRitem->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
     boxRitem->Mat = mMaterials["woodCrate"].get();
-    boxRitem->World = Matrix::CreateTranslation(0.0f, 4.0f, 0.0f);
+    boxRitem->World = Matrix::CreateTranslation(0.0f, 1.0f, 0.0f);
     boxRitem->Geo = mGeometries["boxGeo"].get();
     boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
@@ -1741,6 +1752,7 @@ void NeneApp::BuildRenderItems()
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
     mAllRitems.push_back(std::move(boxRitem));
 
+    /*
     auto sphereRitem = std::make_shared<RenderItem>();
     sphereRitem->Name = "TessSphere";
     sphereRitem->ObjCBIndex = (int)mAllRitems.size();

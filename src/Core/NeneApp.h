@@ -49,6 +49,7 @@ struct RenderItem
     int BaseVertexLocation = 0;
 
     // For LOD
+    std::string SubmeshName;
     UINT SelectedIndexCount = 0;
     UINT SelectedStartIndexLocation = 0;
     int SelectedBaseVertexLocation = 0;
@@ -57,6 +58,16 @@ struct RenderItem
     float LODThreshold = 50.0f;
     std::string Name;
     bool Visible = false;
+};
+
+// Octree for frustum culling (hierarchical spatial partitioning)
+struct OctreeNode {
+    DirectX::BoundingBox Bounds;  // AABB for this octant
+    std::vector<std::shared_ptr<RenderItem>> Items;  // Leaf items only
+    std::unique_ptr<OctreeNode> Children[8];  // 8 octants
+    bool IsLeaf = true;
+
+    OctreeNode(const DirectX::BoundingBox& box) : Bounds(box) {}
 };
 
 struct LightItem {
@@ -203,13 +214,25 @@ private:
     UINT mPassCbvOffset = 0;
 
 #pragma endregion
-    // Frustrum culling
+
+#pragma region Frustrum Culling
     std::vector<std::shared_ptr<RenderItem>> mVisibleRitems;
     float mLODDistanceThreshold = 30.0f;
     bool mUseFrustumCulling = false;
     int mSelectedRItemIndex = 0; // Selected RenderItem index in ImGui
 
+    // Octree members
+    std::unique_ptr<OctreeNode> mOctreeRoot = nullptr;
+    DirectX::BoundingBox mSceneBounds;  // Overall scene AABB for root
+    int mOctreeMaxDepth = 8;  // Configurable; balance build vs. cull (from sources)
+    bool mRebuildOctree = true;  // Flag to rebuild on scene changes
 
+    // New methods
+    void BuildOctree(const std::vector<std::shared_ptr<RenderItem>>& items, OctreeNode* node, int depth);
+    void CollectVisibleItems(OctreeNode* node, const DirectX::BoundingFrustum& frustum, std::vector<std::shared_ptr<RenderItem>>& visibleItems, DirectX::XMVECTOR eyePos);
+    DirectX::BoundingBox ComputeRenderItemBounds(const std::shared_ptr<RenderItem>& ri);
+    void RebuildOctreeIfNeeded();
+#pragma endregion
     bool mIsWireframe = false;
     float m_cameraSpeed = 20;
     float m_mouseSensitivity = 0.005f;
