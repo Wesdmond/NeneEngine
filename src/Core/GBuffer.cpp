@@ -1,6 +1,9 @@
 #include "GBuffer.h"
 #include "Common/d3dUtil.h"
 #include <iostream>
+#include <SimpleMath.h>
+
+using namespace DirectX;
 
 // G-Buffer textures (3 RT)
 DXGI_FORMAT gbufferFormats[] = { DXGI_FORMAT_R8G8B8A8_UNORM,      // Albedo
@@ -28,8 +31,8 @@ void GBuffer::Initialize(ID3D12Device* device, UINT width, UINT height,
 
 void GBuffer::BindForGeometryPass(ID3D12GraphicsCommandList* cmdList)
 {
-    float clearValue[3][4] = {
-        {0, 0, 0, 1},
+    SimpleMath::Color clearValue[3] = {
+        DirectX::Colors::Black,
         {0, 0, 1, 0},
         {0, 0, 0, 0}
     };

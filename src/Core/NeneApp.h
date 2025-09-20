@@ -145,7 +145,7 @@ private:
     void BuildBoxGeometry();
     void BuildManyBoxes(UINT count = 1000);
     void BuildDisplacementTestGeometry();
-    void ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 velocity, SimpleMath::Color color, float linearDamping);
+    void ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 size, SimpleMath::Vector3 velocity, SimpleMath::Color color, float linearDamping);
     void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform, D3D12_PRIMITIVE_TOPOLOGY type);
     void BuildRenderItems();
 #pragma endregion
@@ -229,16 +229,16 @@ private:
 #pragma region Frustrum Culling
     std::vector<std::shared_ptr<RenderItem>> mVisibleRitems;
     float mLODDistanceThreshold = 30.0f;
-    bool mUseFrustumCulling = false;
+    bool mUseFrustumCulling = true;
     int mSelectedRItemIndex = 0; // Selected RenderItem index in ImGui
 
-    // Octree members
+    // Octree
     std::unique_ptr<OctreeNode> mOctreeRoot = nullptr;
-    DirectX::BoundingBox mSceneBounds;  // Overall scene AABB for root
-    int mOctreeMaxDepth = 8;  // Configurable; balance build vs. cull (from sources)
-    bool mRebuildOctree = true;  // Flag to rebuild on scene changes
+    DirectX::BoundingBox mSceneBounds;
+    int mOctreeMaxDepth = 4;
+    bool mRebuildOctree = true;
+    std::unordered_set<std::shared_ptr<RenderItem>> addedItems;
 
-    // New methods
     void BuildOctree(const std::vector<std::shared_ptr<RenderItem>>& items, OctreeNode* node, int depth);
     void CollectVisibleItems(OctreeNode* node, const DirectX::BoundingFrustum& frustum, std::vector<std::shared_ptr<RenderItem>>& visibleItems, DirectX::XMVECTOR eyePos);
     DirectX::BoundingBox ComputeRenderItemBounds(const std::shared_ptr<RenderItem>& ri);
@@ -246,7 +246,7 @@ private:
 #pragma endregion
     bool mIsWireframe = false;
     float m_cameraSpeed = 20;
-    float m_mouseSensitivity = 0.005f;
+    float m_mouseSensitivity = 0.01f;
 
     // Inputs
     DirectX::SimpleMath::Vector2 m_mousePos     = DirectX::SimpleMath::Vector2::Zero;

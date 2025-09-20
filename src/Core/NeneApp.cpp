@@ -44,7 +44,7 @@ bool NeneApp::Initialize()
     BuildMaterials();
     BuildLightGeometries();
     BuildBoxGeometry();
-    //BuildManyBoxes(5000);
+    //BuildManyBoxes(10000);
     //BuildDisplacementTestGeometry();
     //BuildPlane(10.f, 10.f, 8, 8, "highMountain", "mountain", CreateTransformMatrix(-11, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     //BuildPlane(10.f, 10.f, 1, 1, "lowMountain", "mountain", CreateTransformMatrix(0, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
@@ -113,6 +113,12 @@ float GetRandomForce() {
 
 }
 
+SimpleMath::Vector3 GetRandomSize() {
+    std::uniform_real_distribution<float> force(6.5f, 12.0f);
+    return Vector3(force(gen));
+
+}
+
 void NeneApp::UpdateInputs(const GameTimer& gt)
 {
     m_mousePos = m_inputDevice->MousePosition;
@@ -136,7 +142,7 @@ void NeneApp::UpdateInputs(const GameTimer& gt)
         }
     }
     if (m_inputDevice->IsKeyDown(Keys::G)) {
-        ShootLight(m_camera.GetPosition(), m_camera.GetLook() * GetRandomForce(), GetRandomColor(), 0.5f);
+        ShootLight(m_camera.GetPosition(), GetRandomSize(), m_camera.GetLook() * GetRandomForce(), GetRandomColor(), 0.5f);
         m_inputDevice->RemovePressedKey(Keys::G);
     }
 
@@ -163,9 +169,10 @@ void NeneApp::UpdateDynamicLights(const GameTimer& gt)
     {
         if (!dynamicLight->isMoving)
             continue;
-        if (dynamicLight->velocity.Length() <= 0.0001f) {
+        if (dynamicLight->velocity.Length() <= 0.1f) {
             dynamicLight->velocity = Vector3::Zero;
             dynamicLight->isMoving = false;
+            dynamicLight->lightRI->IsDrawingDebugGeometry = false;
             continue;
         }
         dynamicLight->lightRI->light.Position += dynamicLight->velocity * gt.DeltaTime();
@@ -185,17 +192,22 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
         // This needs to be tracked per frame resource.
         if (e->NumFramesDirty > 0)
         {
-            SubmeshGeometry mesh;
+            /*SubmeshGeometry* mesh;
             if (!e->SubmeshName.empty()) {
-                mesh = e->CurrentGeo->DrawArgs[e->SubmeshName];
+                mesh = &(e->CurrentGeo->DrawArgs[e->SubmeshName]);
             }
             else {
                 if (e->CurrentGeo)
-                    mesh = e->CurrentGeo->DrawArgs.begin()->second;
+                    mesh = &(e->CurrentGeo->DrawArgs.begin()->second);
                 else
-                    mesh = e->Geo->DrawArgs.begin()->second;
+                    mesh = &(e->Geo->DrawArgs.begin()->second);
             }
-            mesh.Bounds.Transform(mesh.Bounds, e->World);
+            if (!mesh->isInWorld) {
+                BoundingBox temp = mesh->Bounds;
+                temp.Transform(temp, e->World);
+                mesh->Bounds = temp;
+                mesh->isInWorld = true;
+            }*/
 
             ObjectConstants objConstants;
             objConstants.World = e->World.Transpose();
@@ -307,18 +319,18 @@ void NeneApp::UpdateLightCB(const GameTimer& gt) {
 void NeneApp::UpdateVisibleRenderItems()
 {
     mVisibleRitems.clear();
+    addedItems.clear();
     Matrix viewMat = mView;
     Matrix projMat = mProj;
 
-    BoundingFrustum frustum;
+    BoundingFrustum frustum, localSpaceFrustum;
     BoundingFrustum::CreateFromMatrix(frustum, projMat);
 
     Vector3 eyePos = mMainPassCB.EyePosW;
 
-    //RebuildOctreeIfNeeded();  // Rebuild if flagged (e.g., after ImGui edits)
+    RebuildOctreeIfNeeded();
 
-    if (mOctreeRoot) {
-        // Traverse octree for culling
+    if (mOctreeRoot && mUseFrustumCulling) {
         CollectVisibleItems(mOctreeRoot.get(), frustum, mVisibleRitems, eyePos);
     }
     else {
@@ -338,8 +350,8 @@ void NeneApp::UpdateVisibleRenderItems()
             bool visible = true;
             if (mUseFrustumCulling)
             {
-                bound.Transform(bound, worldMat * viewMat);
-                visible = frustum.Intersects(bound);
+                frustum.Transform(localSpaceFrustum, mView.Invert() * worldMat.Invert());
+                visible = localSpaceFrustum.Contains(bound) != DISJOINT;
             }
             ri->Visible = visible;
             if (!visible)
@@ -376,6 +388,7 @@ void NeneApp::UpdateVisibleRenderItems()
 
     mTessRitems.clear();
     mOpaqueRitems.clear();
+
     // Filtering models from LoadObjModel
     for (auto& ri : mVisibleRitems)
     {
@@ -421,25 +434,22 @@ DirectX::BoundingBox NeneApp::ComputeBounds(const std::vector<Vertex>& verts)
 }
 
 DirectX::BoundingBox NeneApp::ComputeRenderItemBounds(const std::shared_ptr<RenderItem>& ri) {
-    // Merge submesh bounds, transformed by World matrix
-    Matrix worldMat = ri->World;
-    DirectX::BoundingBox totalBounds;
+    DirectX::BoundingBox bound;
 
     if (!ri->SubmeshName.empty()) {
-        totalBounds = ri->Geo->DrawArgs.at(ri->SubmeshName).Bounds;
+        bound = ri->Geo->DrawArgs.at(ri->SubmeshName).Bounds;
     }
     else
-        totalBounds = ri->Geo->DrawArgs.begin()->second.Bounds;
-    totalBounds.Transform(totalBounds, worldMat);
-    
-    return totalBounds;
+        bound = ri->Geo->DrawArgs.begin()->second.Bounds;
+    bound.Transform(bound, ri->World);
+    return bound;
 }
 
 void NeneApp::BuildOctree(const std::vector<std::shared_ptr<RenderItem>>& items, OctreeNode* node, int depth) {
     if (items.empty() || depth >= mOctreeMaxDepth) {
         // Leaf: Store items whose bounds intersect this node's AABB
         for (auto& item : items) {
-            if (node->Bounds.Intersects(ComputeRenderItemBounds(item))) {
+            if (node->Bounds.Contains(ComputeRenderItemBounds(item)) != DISJOINT) {
                 node->Items.push_back(item);
             }
         }
@@ -477,14 +487,13 @@ void NeneApp::BuildOctree(const std::vector<std::shared_ptr<RenderItem>>& items,
     for (auto& item : items) {
         bool assigned = false;
         for (int i = 0; i < 8; ++i) {
-            if (node->Children[i]->Bounds.Intersects(ComputeRenderItemBounds(item))) {
-                childItems[i].push_back(item);
+            if (node->Children[i]->Bounds.Contains(ComputeRenderItemBounds(item)) != DISJOINT) {
+                childItems[i].push_back(item); // Добавляем во все пересекающиеся children
                 assigned = true;
-                break;  // Assign to first intersecting child (loose octree for overlap tolerance, per [source 2])
             }
         }
         if (!assigned) {
-            // Fallback to leaf if no child (rare)
+            // Fallback to leaf if no child
             node->Items.push_back(item);
         }
     }
@@ -498,12 +507,17 @@ void NeneApp::BuildOctree(const std::vector<std::shared_ptr<RenderItem>>& items,
 }
 
 void NeneApp::CollectVisibleItems(OctreeNode* node, const DirectX::BoundingFrustum& frustum, std::vector<std::shared_ptr<RenderItem>>& visibleItems, DirectX::XMVECTOR eyePos) {
-    if (!frustum.Intersects(node->Bounds)) return;  // Fully outside: prune
+    BoundingBox temp = node->Bounds;
+    temp.Transform(temp, mView);
+    if (!(frustum.Contains(temp) != DISJOINT)) return;  // Fully outside: prune
+
 
     if (node->IsLeaf) {
-        // Add all items (fully inside or intersecting)
+
         for (auto& ri : node->Items) {
-            // Per-item LOD check (keep your existing logic)
+            if (addedItems.find(ri) != addedItems.end()) {
+                continue;
+            }
             DirectX::BoundingBox itemBounds = ComputeRenderItemBounds(ri);
             float dist = DirectX::XMVectorGetX(DirectX::XMVector3Length(DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&itemBounds.Center), eyePos)));
             if (ri->UseLOD) {
@@ -520,22 +534,27 @@ void NeneApp::CollectVisibleItems(OctreeNode* node, const DirectX::BoundingFrust
             else {
                 ri->CurrentGeo = ri->Geo;
             }
-            auto& drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
+            SubmeshGeometry drawArg;
+            if (!ri->SubmeshName.empty())
+                drawArg = ri->CurrentGeo->DrawArgs.at(ri->SubmeshName);
+            else
+                drawArg = ri->CurrentGeo->DrawArgs.begin()->second;
             ri->SelectedIndexCount = drawArg.IndexCount;
             ri->SelectedStartIndexLocation = drawArg.StartIndexLocation;
             ri->SelectedBaseVertexLocation = drawArg.BaseVertexLocation;
             ri->Visible = true;
             visibleItems.push_back(ri);
+            addedItems.insert(ri);
         }
         return;
     }
 
-    // Intersecting non-leaf: recurse
     for (int i = 0; i < 8; ++i) {
         if (node->Children[i]) {
             CollectVisibleItems(node->Children[i].get(), frustum, visibleItems, eyePos);
         }
     }
+    //std::cout << "Collected " << visibleItems.size() << " unique visible items in this pass." << std::endl;
 }
 
 void NeneApp::RebuildOctreeIfNeeded() {
@@ -545,9 +564,7 @@ void NeneApp::RebuildOctreeIfNeeded() {
     bool first = true;
     for (auto& ri : mAllRitems) {
         DirectX::BoundingBox itemBounds = ComputeRenderItemBounds(ri);
-        /*Matrix world = ri->World;
-        Matrix view = mView;
-        itemBounds.Transform(itemBounds, world * view);*/
+
         if (first) {
             mSceneBounds = itemBounds;
             first = false;
@@ -1112,7 +1129,7 @@ void NeneApp::BuildShadersAndInputLayout()
 void NeneApp::BuildBoxLightGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0);
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
@@ -1162,7 +1179,7 @@ void NeneApp::BuildBoxLightGeometry()
 void NeneApp::BuildSphereLightGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateSphere(1.0f, 32, 16);
+    GeometryGenerator::MeshData box = geoGen.CreateSphere(1.0f, 8, 5);
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
@@ -1574,27 +1591,28 @@ void NeneApp::BuildDisplacementTestGeometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
-void NeneApp::ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 velocity, SimpleMath::Color color, float linearDamping)
+void NeneApp::ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 size, SimpleMath::Vector3 velocity, SimpleMath::Color color, float linearDamping)
 {
     std::cout << "Shoot Light!" << std::endl;
 
-    auto sphereGeo = mGeometries["lightSphere"].get();
+    auto sphereGeo = mGeometries["lightBox"].get();
     auto pointRI = std::make_shared<LightItem>();
     pointRI->Name = "Dynamic Point Light " + m_DynamicLights.size();
     pointRI->lightType = LightTypes::POINTLIGHT;
     pointRI->light.Position = position;
     pointRI->light.FalloffStart = 1.0f;
-    pointRI->light.FalloffEnd = 5.0f;
+    pointRI->light.FalloffEnd = 10.0f;
     pointRI->light.Strength = { color.R(), color.G(), color.B() };
     pointRI->LightCBIndex = (UINT)mLightRitems.size();
     pointRI->Geo = sphereGeo;
     pointRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    pointRI->IndexCount = sphereGeo->DrawArgs["lightSphere"].IndexCount;
-    pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightSphere"].StartIndexLocation;
-    pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightSphere"].BaseVertexLocation;
+    pointRI->IndexCount = sphereGeo->DrawArgs["lightBox"].IndexCount;
+    pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightBox"].StartIndexLocation;
+    pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightBox"].BaseVertexLocation;
     pointRI->PSOType = "DeferredLightDepthOff";
     pointRI->Visible = true;
     pointRI->NumFramesDirtyLight = gNumFrameResources;
+    pointRI->IsDrawingDebugGeometry = true;
 
     auto dynamicLight = std::make_shared<DynamicLight>();
     dynamicLight->lightRI = std::move(pointRI);
@@ -1997,7 +2015,7 @@ void NeneApp::BuildRenderItems()
     ambRI->Visible = true;
     ambRI->NumFramesDirtyLight = gNumFrameResources;
     ambRI->lightType = LightTypes::AMBIENT;
-    ambRI->light.Strength = { 0.01f, 0.01f, 0.01f };
+    ambRI->light.Strength = { 0.05f, 0.05f, 0.05f };
     mLightRitems.push_back(ambRI);
 
     // Dir light RI
@@ -2477,17 +2495,14 @@ void NeneApp::DrawUI()
             auto* selectedLight = mLightRitems[selectedLightIndex].get();
             if (selectedLight)
             {
-                // Чекбокс для debug-геометрии
                 ImGui::Checkbox("Draw Debug Geometry", &selectedLight->IsDrawingDebugGeometry);
 
-                // Слайдеры для позиции (движение света)
                 ImGui::Text("Position:");
                 bool posChanged = false;
                 posChanged |= ImGui::SliderFloat("X", &selectedLight->light.Position.x, -50.0f, 50.0f, "%.2f");
                 posChanged |= ImGui::SliderFloat("Y", &selectedLight->light.Position.y, -50.0f, 50.0f, "%.2f");
                 posChanged |= ImGui::SliderFloat("Z", &selectedLight->light.Position.z, -50.0f, 50.0f, "%.2f");
 
-                // Слайдеры для цвета (Strength)
                 ImGui::Text("Color (Strength):");
                 bool colorChanged = false;
                 colorChanged |= ImGui::SliderFloat("R", &selectedLight->light.Strength.x, 0.0f, 5.0f, "%.2f");
@@ -2503,13 +2518,11 @@ void NeneApp::DrawUI()
                 }
 
 
-                // Применение изменений (dirty flags)
-                if (colorChanged || posChanged || directionChanged)  // Position тоже в LightData
+                if (colorChanged || posChanged || directionChanged)
                 {
-                    selectedLight->NumFramesDirtyLight = gNumFrameResources;  // Для LightCB
+                    selectedLight->NumFramesDirtyLight = gNumFrameResources;
                 }
 
-                // Опционально: Кнопка "Reset"
                 if (ImGui::Button("Reset Light"))
                 {
                     selectedLight->light.Position = XMFLOAT3(0.0f, 0.0f, 0.0f);
