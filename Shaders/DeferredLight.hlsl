@@ -102,8 +102,6 @@ GBufferData ReadGBuffer(float2 screenPos)
 [earlydepthstencil]
 float4 PS(VertexOut pin)    : SV_TARGET
 {
-    //if (!(gLightType == AMBIENT || gLightType == DIRECTIONAL))
-    //    return pin.PosW;
     float2 texC = pin.PosH.xy * gInvRenderTargetSize;
     
     GBufferData buf = ReadGBuffer(pin.PosH.xy);
@@ -118,10 +116,9 @@ float4 PS(VertexOut pin)    : SV_TARGET
     switch (gLightType)
     {
         case AMBIENT:
-            lighting += gAmbientLight.rgb * buf.Albedo.rgb;
+            lighting += LightData.Strength.rgb * buf.Albedo.rgb;
             break;
         case DIRECTIONAL:
-            lighting += gAmbientLight.rgb * buf.Albedo.rgb; // temp solution with no ambient and only ambient + directional
             lighting += ComputeDirectionalLight(LightData, mat, buf.Normal, toEye);
             break;
         case POINTLIGHT:

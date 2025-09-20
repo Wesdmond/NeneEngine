@@ -78,11 +78,11 @@ struct LightItem {
     // Because we have an object cbuffer for each FrameResource, we have to apply the
     // update to each FrameResource.  Thus, when we modify obect data we should set 
     // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
-    int NumFramesDirty = gNumFrameResources;
-    int NumFramesDirtyLight = gNumFrameResources; // Для LightCB
+    int NumFramesDirtyLight = gNumFrameResources;
+
+    std::string Name = "NoName Light";
 
     // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
-    UINT ObjCBIndex = -1;
     UINT LightCBIndex = -1;
 
     MeshGeometry* Geo = nullptr;
@@ -103,6 +103,15 @@ struct LightItem {
     int BaseVertexLocation = 0;
 
     bool Visible = false;
+};
+
+const int MAX_DYNAMIC_LIGHTS = 100;
+struct DynamicLight {
+    std::shared_ptr<LightItem> lightRI;
+    SimpleMath::Vector3 velocity;
+    float linearDamping;
+
+    bool isMoving = true;
 };
 
 class NeneApp : public DX12App
@@ -136,6 +145,7 @@ private:
     void BuildBoxGeometry();
     void BuildManyBoxes(UINT count = 1000);
     void BuildDisplacementTestGeometry();
+    void ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 velocity, SimpleMath::Color color, float linearDamping);
     void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform, D3D12_PRIMITIVE_TOPOLOGY type);
     void BuildRenderItems();
 #pragma endregion
@@ -154,6 +164,7 @@ private:
     void UpdateInputs(const GameTimer& gt);
     void UpdateCamera(const GameTimer& gt);
     void AnimateMaterials(const GameTimer& gt);
+    void UpdateDynamicLights(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
@@ -204,6 +215,7 @@ private:
     std::vector<std::shared_ptr<RenderItem>> mNormalRitems;
     std::vector<std::shared_ptr<RenderItem>> mBasicRitems;
     std::vector<std::shared_ptr<LightItem>> mLightRitems;
+    std::vector<std::shared_ptr<DynamicLight>> m_DynamicLights;
 
     PassConstants mMainPassCB;;
 
