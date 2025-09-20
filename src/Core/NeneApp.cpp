@@ -1595,7 +1595,7 @@ void NeneApp::ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 size,
 {
     std::cout << "Shoot Light!" << std::endl;
 
-    auto sphereGeo = mGeometries["lightBox"].get();
+    auto sphereGeo = mGeometries["lightSphere"].get();
     auto pointRI = std::make_shared<LightItem>();
     pointRI->Name = "Dynamic Point Light " + m_DynamicLights.size();
     pointRI->lightType = LightTypes::POINTLIGHT;
@@ -1606,9 +1606,9 @@ void NeneApp::ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 size,
     pointRI->LightCBIndex = (UINT)mLightRitems.size();
     pointRI->Geo = sphereGeo;
     pointRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    pointRI->IndexCount = sphereGeo->DrawArgs["lightBox"].IndexCount;
-    pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightBox"].StartIndexLocation;
-    pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightBox"].BaseVertexLocation;
+    pointRI->IndexCount = sphereGeo->DrawArgs["lightSphere"].IndexCount;
+    pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightSphere"].StartIndexLocation;
+    pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightSphere"].BaseVertexLocation;
     pointRI->PSOType = "DeferredLightDepthOff";
     pointRI->Visible = true;
     pointRI->NumFramesDirtyLight = gNumFrameResources;
@@ -2031,8 +2031,8 @@ void NeneApp::BuildRenderItems()
     dirRI->Visible = true;
     dirRI->NumFramesDirtyLight = gNumFrameResources;
     dirRI->lightType = LightTypes::DIRECTIONAL;
-    dirRI->light.Direction = { 0.0f, -1.0f, 0.0f };
-    dirRI->light.Strength = { 0.2f, 0.2f, 0.2f };
+    dirRI->light.Direction = { -1.0f, -1.0f, 1.0f };
+    dirRI->light.Strength = { 0.1f, 0.1f, 0.1f };
     mLightRitems.push_back(dirRI);
 
     // Point light RI (scale to falloff, pos static)
@@ -2059,7 +2059,7 @@ void NeneApp::BuildRenderItems()
     Matrix spotR = Matrix::CreateRotationX(XM_PI);  // Point down (-Y)
     Matrix spotS = Matrix::CreateScale(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
     Matrix spotT = Matrix::CreateTranslation(10.0f, 10.0f, -5.0f);
-    spotRI->World = spotT;
+    spotRI->Name = "SpotLight";
     spotRI->lightType = LightTypes::SPOTLIGHT;
     spotRI->light.Position = { 10.0f, 10.0f, -5.0f };
     spotRI->light.FalloffStart = 1.0f;
@@ -2077,52 +2077,6 @@ void NeneApp::BuildRenderItems()
     spotRI->Visible = true;
     spotRI->NumFramesDirtyLight = gNumFrameResources;
     mLightRitems.push_back(spotRI);
-
-    //for (int i = 0; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
-    //{
-    //    auto lightItem = std::make_shared<RenderItem>();
-    //    lightItem->ObjCBIndex = mAllRitems.size() + mLightRitems.size();
-    //    lightItem->NumFramesDirty = gNumFrameResources;
-
-    //    if (i < NUM_DIR_LIGHTS)
-    //    {
-    //        lightItem->Geo = mGeometries["lightQuad"].get();
-    //        lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    //        lightItem->World = MathHelper::Identity4x4();
-    //        lightItem->PSOType = "DeferredLightDepthOff";
-    //    }
-    //    else if (i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS)
-    //    {
-    //        lightItem->Geo = mGeometries["lightSphere"].get();
-    //        lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    //        float radius = mMainPassCB.Lights[i].FalloffEnd;
-    //        XMMATRIX scale = XMMatrixScaling(radius * 2.0f, radius * 2.0f, radius * 2.0f);
-    //        XMMATRIX translate = XMMatrixTranslation(mMainPassCB.Lights[i].Position.x, mMainPassCB.Lights[i].Position.y, mMainPassCB.Lights[i].Position.z);
-    //        XMStoreFloat4x4(&lightItem->World, XMMatrixTranspose(scale * translate));
-    //        lightItem->PSOType = "DeferredLightDepthOn";
-    //    }
-    //    else if (i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS)
-    //    {
-    //        lightItem->Geo = mGeometries["lightBox"].get();
-    //        lightItem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    //        float coneAngle = acos(1.0f / mMainPassCB.Lights[i].SpotPower) * 2.0f;
-    //        float radius = mMainPassCB.Lights[i].FalloffEnd * tan(coneAngle / 2.0f);
-    //        XMMATRIX scale = XMMatrixScaling(radius * 2.0f, mMainPassCB.Lights[i].FalloffEnd, radius * 2.0f);
-    //        XMMATRIX rotation = CreateRotationMatrixFromDirection(mMainPassCB.Lights[i].Direction);
-    //        XMMATRIX translate = XMMatrixTranslation(mMainPassCB.Lights[i].Position.x, mMainPassCB.Lights[i].Position.y, mMainPassCB.Lights[i].Position.z);
-    //        XMStoreFloat4x4(&lightItem->World, scale * rotation * translate);
-    //        lightItem->PSOType = "DeferredLightDepthOn";
-    //    }
-
-    //    lightItem->IndexCount = lightItem->Geo->DrawArgs.begin()->second.IndexCount;
-    //    lightItem->StartIndexLocation = lightItem->Geo->DrawArgs.begin()->second.StartIndexLocation;
-    //    lightItem->BaseVertexLocation = lightItem->Geo->DrawArgs.begin()->second.BaseVertexLocation;
-    //    lightItem->Name = "Light" + std::to_string(i);
-    //    lightItem->Visible = true;
-
-    //    //mAllRitems.push_back(lightItem);
-    //    mLightRitems.push_back(lightItem);
-    //}
     
     std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
     std::cout << "Light render items size: " << mLightRitems.size() << std::endl;
@@ -2495,26 +2449,27 @@ void NeneApp::DrawUI()
             auto* selectedLight = mLightRitems[selectedLightIndex].get();
             if (selectedLight)
             {
-                ImGui::Checkbox("Draw Debug Geometry", &selectedLight->IsDrawingDebugGeometry);
+                if (selectedLight->lightType != AMBIENT && selectedLight->lightType != DIRECTIONAL) {
+                    ImGui::Checkbox("Draw Debug Geometry", &selectedLight->IsDrawingDebugGeometry);
+                }
 
-                ImGui::Text("Position:");
                 bool posChanged = false;
-                posChanged |= ImGui::SliderFloat("X", &selectedLight->light.Position.x, -50.0f, 50.0f, "%.2f");
-                posChanged |= ImGui::SliderFloat("Y", &selectedLight->light.Position.y, -50.0f, 50.0f, "%.2f");
-                posChanged |= ImGui::SliderFloat("Z", &selectedLight->light.Position.z, -50.0f, 50.0f, "%.2f");
+                if (selectedLight->lightType != AMBIENT && selectedLight->lightType != DIRECTIONAL) {
+                    ImGui::Text("Position:");
+                    posChanged |= ImGui::SliderFloat("X", &selectedLight->light.Position.x, -50.0f, 50.0f, "%.2f");
+                    posChanged |= ImGui::SliderFloat("Y", &selectedLight->light.Position.y, -50.0f, 50.0f, "%.2f");
+                    posChanged |= ImGui::SliderFloat("Z", &selectedLight->light.Position.z, -50.0f, 50.0f, "%.2f");
+                }
 
-                ImGui::Text("Color (Strength):");
                 bool colorChanged = false;
-                colorChanged |= ImGui::SliderFloat("R", &selectedLight->light.Strength.x, 0.0f, 5.0f, "%.2f");
-                colorChanged |= ImGui::SliderFloat("G", &selectedLight->light.Strength.y, 0.0f, 5.0f, "%.2f");
-                colorChanged |= ImGui::SliderFloat("B", &selectedLight->light.Strength.z, 0.0f, 5.0f, "%.2f");
+                colorChanged |= ImGui::ColorEdit3("Color: ", &selectedLight->light.Strength.x);
 
                 bool directionChanged = false;
-                if (selectedLight->lightType == DIRECTIONAL || selectedLight->lightType == SPOTLIGHT) {
+                if (selectedLight->lightType == POINTLIGHT || selectedLight->lightType == SPOTLIGHT) {
                     ImGui::Text("Direction:");
-                    directionChanged |= ImGui::SliderFloat("Dir X", &selectedLight->light.Direction.x, -1.0f, 1.0f, "%.2f");
-                    directionChanged |= ImGui::SliderFloat("Dir Y", &selectedLight->light.Direction.y, -1.0f, 1.0f, "%.2f");
-                    directionChanged |= ImGui::SliderFloat("Dir Z", &selectedLight->light.Direction.z, -1.0f, 1.0f, "%.2f");
+                    directionChanged |= ImGui::SliderFloat("Dir X", &selectedLight->light.Direction.x, -1.0f, 1.0f, "%.1f");
+                    directionChanged |= ImGui::SliderFloat("Dir Y", &selectedLight->light.Direction.y, -1.0f, 1.0f, "%.1f");
+                    directionChanged |= ImGui::SliderFloat("Dir Z", &selectedLight->light.Direction.z, -1.0f, 1.0f, "%.1f");
                 }
 
 
@@ -2526,8 +2481,8 @@ void NeneApp::DrawUI()
                 if (ImGui::Button("Reset Light"))
                 {
                     selectedLight->light.Position = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                    selectedLight->light.Strength = XMFLOAT3(0.5f, 0.5f, 0.5f);
-                    selectedLight->light.Direction = XMFLOAT3(0.0f, -1.0f, 0.0f);
+                    selectedLight->light.Strength = XMFLOAT3(0.2f, 0.2f, 0.2f);
+                    selectedLight->light.Direction = XMFLOAT3(-1.0f, -1.0f, 1.0f);
                     selectedLight->NumFramesDirtyLight = gNumFrameResources;
                 }
             }
