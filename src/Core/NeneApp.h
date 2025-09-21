@@ -150,6 +150,14 @@ private:
     void BuildRenderItems();
 #pragma endregion
 
+#pragma region post-process
+    void BuildPostProcessHeaps();
+    void BuildPostProcessResources();
+    void BuildPostProcessSignature();
+    void BuildPostProcessPSO();
+#pragma endregion
+
+
     void BuildPSOs();
 	void BuildTextureSRVs();
     void BuildFrameResources();
@@ -179,8 +187,8 @@ private:
 
     // GBuffer
     GBuffer m_gBuffer;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_rtvGBufferHeap;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_dsvGBufferHeap;
+    ComPtr<ID3D12DescriptorHeap> m_rtvGBufferHeap;
+    ComPtr<ID3D12DescriptorHeap> m_dsvGBufferHeap;
     ComPtr<ID3D12RootSignature> m_defferedRootSignature;
 
 #pragma region App Resources
@@ -243,6 +251,16 @@ private:
     void CollectVisibleItems(OctreeNode* node, const DirectX::BoundingFrustum& frustum, std::vector<std::shared_ptr<RenderItem>>& visibleItems, DirectX::XMVECTOR eyePos);
     DirectX::BoundingBox ComputeRenderItemBounds(const std::shared_ptr<RenderItem>& ri);
     void RebuildOctreeIfNeeded();
+#pragma endregion
+
+#pragma regino post-process resources
+    ComPtr<ID3D12Resource> mPostProcessRenderTarget;
+    ComPtr<ID3D12DescriptorHeap> mPostProcessRTVHeap;
+    ComPtr<ID3D12DescriptorHeap> mPostProcessSRVHeap;
+    std::unordered_map<std::string, ComPtr<ID3DBlob>> mPostProcessShaders;
+    ComPtr<ID3D12RootSignature> mPostProcessRootSignature;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE mPostProcessSrvGpuHandle;
+
 #pragma endregion
     bool mIsWireframe = false;
     float m_cameraSpeed = 20;

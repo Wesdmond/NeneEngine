@@ -46,7 +46,6 @@ struct VertexIn
 struct VertexOut
 {
     float4 PosH             : SV_POSITION;
-    float4 PosW             : POSITION;
 };
 
 VertexOut VS(VertexIn vin)
@@ -61,7 +60,6 @@ VertexOut VS(VertexIn vin)
     {
         float4 posW = mul(float4(vin.PosL, 1.0f), gLightWorld);
         vout.PosH = mul(posW, gViewProj);
-        vout.PosW = posW;
     }
     return vout;
 }

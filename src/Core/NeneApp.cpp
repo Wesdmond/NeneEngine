@@ -38,6 +38,7 @@ bool NeneApp::Initialize()
     m_gBuffer.Initialize(m_device.Get(), m_clientWidth, m_clientHeight, m_rtvGBufferHeap->GetCPUDescriptorHandleForHeapStart(),
         mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
         m_dsvGBufferHeap->GetCPUDescriptorHandleForHeapStart());
+
     BuildRootSignature();
     BuildShadersAndInputLayout();
     LoadTextures();
@@ -55,6 +56,12 @@ bool NeneApp::Initialize()
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
+
+    // Init Post-process
+    BuildPostProcessHeaps();
+    BuildPostProcessResources();
+    BuildPostProcessSignature();
+    BuildPostProcessPSO();
 
     InitCamera();
 
@@ -658,11 +665,7 @@ void NeneApp::PopulateCommandList()
     //m_commandList->RSSetViewports(1, &m_viewport);
     //m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
-    //// Indicate a state transition on the resource usage.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-    //// Clear the back buffer and depth buffer.
+    // Clear the back buffer and depth buffer.
     //m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Cyan, 0, nullptr);
     //m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
@@ -2082,6 +2085,155 @@ void NeneApp::BuildRenderItems()
     std::cout << "Light render items size: " << mLightRitems.size() << std::endl;
 }
 
+void NeneApp::BuildPostProcessHeaps()
+{
+
+}
+
+void NeneApp::BuildPostProcessResources()
+{
+    // Create render target for post-processing
+    D3D12_RESOURCE_DESC renderTargetDesc{};
+    ZeroMemory(&renderTargetDesc, sizeof(D3D12_RESOURCE_DESC));
+    renderTargetDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    renderTargetDesc.Alignment = 0;
+    renderTargetDesc.Width = m_clientWidth;
+    renderTargetDesc.Height = m_clientHeight;
+    renderTargetDesc.DepthOrArraySize = 1;
+    renderTargetDesc.MipLevels = 1;
+    renderTargetDesc.Format = m_backBufferFormat;
+    renderTargetDesc.SampleDesc.Count = 1;
+    renderTargetDesc.SampleDesc.Quality = 0;
+    renderTargetDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    renderTargetDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    D3D12_CLEAR_VALUE clearValue{};
+    clearValue.Format = m_backBufferFormat;
+    memcpy(clearValue.Color, Colors::Black, sizeof(float) * 4);
+
+    ThrowIfFailed(m_device->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+        D3D12_HEAP_FLAG_NONE,
+        &renderTargetDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        &clearValue,
+        IID_PPV_ARGS(&mPostProcessRenderTarget)));
+
+    // Create RTV heap
+    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
+    rtvHeapDesc.NumDescriptors = 1;
+    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    rtvHeapDesc.NodeMask = 0;
+
+    ThrowIfFailed(m_device->CreateDescriptorHeap(
+        &rtvHeapDesc, IID_PPV_ARGS(&mPostProcessRTVHeap)));
+
+    // Create RTV
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(
+        mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart());
+    m_device->CreateRenderTargetView(
+        mPostProcessRenderTarget.Get(), nullptr, rtvHandle);
+
+    // После создания mPostProcessRenderTarget
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    UINT srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // Offset после GBuffer (4) + текстур
+    UINT postProcessSrvOffset = 4 + (UINT)mTextures.size();
+    srvHandle.Offset(postProcessSrvOffset, srvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = m_backBufferFormat;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    m_device->CreateShaderResourceView(
+        mPostProcessRenderTarget.Get(), &srvDesc, srvHandle);
+
+    // Сохраните GPU handle для binding в шейдерах (добавьте в класс член, напр. D3D12_GPU_DESCRIPTOR_HANDLE mPostProcessSrvGpuHandle)
+    mPostProcessSrvGpuHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), postProcessSrvOffset, srvDescriptorSize);
+}
+
+void NeneApp::BuildPostProcessSignature()
+{
+    CD3DX12_DESCRIPTOR_RANGE gbufferTable;
+    gbufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0); // 3 G-Buffer + 1 Depth
+    CD3DX12_DESCRIPTOR_RANGE afterLightTable;
+    afterLightTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4); // 3 G-Buffer + 1 Depth
+
+    CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+    slotRootParameter[0].InitAsDescriptorTable(1, &gbufferTable, D3D12_SHADER_VISIBILITY_PIXEL);
+    slotRootParameter[1].InitAsConstantBufferView(0);
+    slotRootParameter[2].InitAsDescriptorTable(1, &afterLightTable, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    // TODO: Make on GetStaticSamplers method
+    CD3DX12_STATIC_SAMPLER_DESC sampler(
+        0,                                  // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT,     // filter
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,   // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,   // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP);  // addressW
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter,
+        1, &sampler,
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(m_device->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(&mPostProcessRootSignature)));
+}
+
+void NeneApp::BuildPostProcessPSO()
+{
+    // Compile shaders
+    OutputDebugStringA("Compiling Shaders\\BasicPostProcess.hlsl VS\n");
+    mPostProcessShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\BasicPostProcess.hlsl", nullptr, "VS", "vs_5_1");
+    OutputDebugStringA("Compiling Shaders\\BasicPostProcess.hlsl PS\n");
+    mPostProcessShaders["postPS"] = d3dUtil::CompileShader(L"Shaders\\BasicPostProcess.hlsl", nullptr, "PS", "ps_5_1");
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
+    ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    psoDesc.InputLayout = { nullptr, 0 };
+    psoDesc.pRootSignature = mPostProcessRootSignature.Get();
+    psoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mPostProcessShaders["postVS"]->GetBufferPointer()),
+        mPostProcessShaders["postVS"]->GetBufferSize()
+    };
+    psoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mPostProcessShaders["postPS"]->GetBufferPointer()),
+        mPostProcessShaders["postPS"]->GetBufferSize()
+    };
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable = false;
+    psoDesc.DepthStencilState.StencilEnable = false;
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = m_backBufferFormat;
+    psoDesc.SampleDesc.Count = 1;
+    psoDesc.SampleDesc.Quality = 0;
+
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["PostProcess"])));
+}
+
 void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -2165,8 +2317,17 @@ void NeneApp::DrawDeffered()
 
     // Lighting Pass
     m_gBuffer.BindForLightingPass(m_commandList.Get());
-    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        mPostProcessRenderTarget.Get(),
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_RENDER_TARGET));
+    auto ppRTV = mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart();
+    CD3DX12_CPU_DESCRIPTOR_HANDLE ppRTVHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE(
+        mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(),
+        0,
+        m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV));
+    m_commandList->OMSetRenderTargets(1, &ppRTV, true, &DepthStencilView());
+    m_commandList->ClearRenderTargetView(ppRTVHandle, DirectX::Colors::Black, 0, nullptr);
 
     m_commandList->SetPipelineState(mPSOs["DeferredLightDepthOff"].Get());
     m_commandList->SetGraphicsRootSignature(m_defferedRootSignature.Get());
@@ -2190,10 +2351,10 @@ void NeneApp::DrawDeffered()
         m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
         m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
     }
-
-    m_commandList->SetPipelineState(mPSOs["lightingShapes"].Get());
-    m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     // Debug rendering
+    m_commandList->SetPipelineState(mPSOs["lightingShapes"].Get());
+    m_commandList->SetGraphicsRootSignature(m_defferedRootSignature.Get());
+    m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     for (const auto& lightItem : mLightRitems)
     {
         if (lightItem->lightType != LightTypes::AMBIENT && lightItem->lightType != LightTypes::DIRECTIONAL && lightItem->IsDrawingDebugGeometry)
@@ -2206,6 +2367,29 @@ void NeneApp::DrawDeffered()
             m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
         }
     }
+
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        mPostProcessRenderTarget.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    // Indicate a state transition on the resource usage.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr);
+
+
+    // Post-Process
+    m_commandList->SetPipelineState(mPSOs["PostProcess"].Get());
+    m_commandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
+    m_commandList->SetGraphicsRootDescriptorTable(0, srvHandles[0]);
+    m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->SetGraphicsRootDescriptorTable(2, mPostProcessSrvGpuHandle);
+
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_commandList->DrawInstanced(3, 1, 0, 0);
+
 
     m_gBuffer.Unbind(m_commandList.Get());
 }
