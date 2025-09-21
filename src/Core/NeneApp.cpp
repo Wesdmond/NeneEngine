@@ -91,7 +91,8 @@ void NeneApp::OnResize()
     DX12App::OnResize();
     if (m_dsvGBufferHeap)
         m_gBuffer.Resize(m_device.Get(), m_clientWidth, m_clientHeight);
-
+    if (mSrvDescriptorHeap)
+        BuildPostProcessResources();
     // Invalidate ImGui's device objects (releases old RTVs/views tied to back buffers)
     ImGui_ImplDX12_InvalidateDeviceObjects();
     // Recreate ImGui's device objects immediately (binds to new back buffers)

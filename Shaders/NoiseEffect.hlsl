@@ -8,12 +8,12 @@ float Random(float2 uv, float seed)
 float4 PS(PS_IN input) : SV_Target
 {
     GBufferData buf = ReadGBuffer(input.TexC);
-        float4 litColor = AfterLightMap.Sample(Sampler, input.TexC);
+    float4 litColor = AfterLightMap.Sample(Sampler, input.TexC);
     
-    float grainIntensity = 0.05;
+    float grainIntensity = 0.1;
     
     float noise = Random(input.TexC * gRenderTargetSize, gTotalTime);
 
-    float3 grain = (noise - 0.5) * grainIntensity; // center noise around 0
+    float3 grain = noise * grainIntensity;
     return float4(litColor.rgb + grain, litColor.a);
 }
