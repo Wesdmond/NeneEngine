@@ -103,6 +103,8 @@ float4 PS(VertexOut pin)    : SV_TARGET
     float2 texC = pin.PosH.xy * gInvRenderTargetSize;
     
     GBufferData buf = ReadGBuffer(pin.PosH.xy);
+    if (buf.Albedo.a == 0)
+        discard;
     float3 posW = ComputeWorldlPos(texC, buf.Depth.r);
 
     float3 toEye = normalize(gEyePosW - posW);

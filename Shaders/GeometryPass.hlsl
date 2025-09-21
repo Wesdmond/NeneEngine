@@ -72,6 +72,8 @@ struct PSOutput
 PSOutput PS(VertexOut pin)
 {
     PSOutput output;
+    if (gDiffuseMap.Sample(gsamLinearWrap, pin.TexC).a == 0)
+        discard;
     output.Albedo = gDiffuseMap.Sample(gsamLinearWrap, pin.TexC);
     output.Normal = float4(normalize(pin.NormalW), 0.0);
     output.Roughness = 0.8f;

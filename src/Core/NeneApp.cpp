@@ -49,10 +49,9 @@ bool NeneApp::Initialize()
     //BuildDisplacementTestGeometry();
     //BuildPlane(10.f, 10.f, 8, 8, "highMountain", "mountain", CreateTransformMatrix(-11, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     //BuildPlane(10.f, 10.f, 1, 1, "lowMountain", "mountain", CreateTransformMatrix(0, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
-    BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -0.f, 0.f));
-    //LoadObjModel("assets/hangar/hangar.obj", CreateTransformMatrix(0, 0, 0));
+    //BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    //BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
     BuildRenderItems();
     BuildFrameResources();
     BuildPSOs();
@@ -98,7 +97,7 @@ void NeneApp::OnResize()
     // Recreate ImGui's device objects immediately (binds to new back buffers)
     ImGui_ImplDX12_CreateDeviceObjects();
 
-    m_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    m_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 1000.0f);
 
     // The window resized, so update the aspect ratio and recompute the projection matrix.
     XMMATRIX P = XMMatrixPerspectiveFovLH(m_camera.GetFovY(), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
@@ -2605,7 +2604,7 @@ void NeneApp::DrawUI()
 
     if (ImGui::Begin("Lights Control"))
     {
-        static int selectedLightIndex = 0;  // Current index for dropdown
+        static int selectedLightIndex = 0;
         if (mLightRitems.empty())
         {
             ImGui::Text("No lights available");
@@ -2616,20 +2615,7 @@ void NeneApp::DrawUI()
             std::vector<const char*> lightNames;
             for (const auto& ri : mLightRitems)
                 lightNames.push_back(ri->Name.empty() ? ("Dinamic Light " + std::to_string(ri->LightCBIndex)).c_str() : ri->Name.c_str());
-            if (ImGui::BeginCombo("Select Light", lightNames[selectedLightIndex]))
-            {
-                for (int i = 0; i < mLightRitems.size(); ++i)
-                {
-                    bool isSelected = (selectedLightIndex == i);
-                    if (ImGui::Selectable(lightNames[i], &isSelected))
-                    {
-                        selectedLightIndex = i;
-                    }
-                    if (isSelected)
-                        ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
+            ImGui::Combo("Select Light", &selectedLightIndex, lightNames.data(), (int)lightNames.size());
 
             auto* selectedLight = mLightRitems[selectedLightIndex].get();
             if (selectedLight)
@@ -2641,20 +2627,16 @@ void NeneApp::DrawUI()
                 bool posChanged = false;
                 if (selectedLight->lightType != AMBIENT && selectedLight->lightType != DIRECTIONAL) {
                     ImGui::Text("Position:");
-                    posChanged |= ImGui::SliderFloat("X", &selectedLight->light.Position.x, -50.0f, 50.0f, "%.2f");
-                    posChanged |= ImGui::SliderFloat("Y", &selectedLight->light.Position.y, -50.0f, 50.0f, "%.2f");
-                    posChanged |= ImGui::SliderFloat("Z", &selectedLight->light.Position.z, -50.0f, 50.0f, "%.2f");
+                    posChanged |= ImGui::SliderFloat3("Position", &selectedLight->light.Position.x, -10.0f, 10.0f, "%.2f");
                 }
 
                 bool colorChanged = false;
                 colorChanged |= ImGui::ColorEdit3("Color: ", &selectedLight->light.Strength.x);
 
                 bool directionChanged = false;
-                if (selectedLight->lightType == POINTLIGHT || selectedLight->lightType == SPOTLIGHT) {
+                if (selectedLight->lightType == DIRECTIONAL || selectedLight->lightType == SPOTLIGHT) {
                     ImGui::Text("Direction:");
-                    directionChanged |= ImGui::SliderFloat("Dir X", &selectedLight->light.Direction.x, -1.0f, 1.0f, "%.1f");
-                    directionChanged |= ImGui::SliderFloat("Dir Y", &selectedLight->light.Direction.y, -1.0f, 1.0f, "%.1f");
-                    directionChanged |= ImGui::SliderFloat("Dir Z", &selectedLight->light.Direction.z, -1.0f, 1.0f, "%.1f");
+                    directionChanged |= ImGui::SliderFloat3("Direction", &selectedLight->light.Direction.x, -1.0f, 1.0f, "%.1f");
                 }
 
 
