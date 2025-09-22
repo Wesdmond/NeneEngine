@@ -7,6 +7,7 @@
 #include <SimpleMath.h>
 #include "FrameResource.h"
 #include "GBuffer.h"
+#include "ParticleSystem.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -184,6 +185,7 @@ private:
     Camera m_camera;
     UIManager m_uiManager;
     std::shared_ptr<InputDevice> m_inputDevice;
+    std::unique_ptr<ParticleSystem> mParticleSystem;
 
     // GBuffer
     GBuffer m_gBuffer;
@@ -253,7 +255,7 @@ private:
     void RebuildOctreeIfNeeded();
 #pragma endregion
 
-#pragma regino post-process resources
+#pragma region post-process resources
     ComPtr<ID3D12Resource> mPostProcessRenderTarget;
     ComPtr<ID3D12DescriptorHeap> mPostProcessRTVHeap;
     ComPtr<ID3D12DescriptorHeap> mPostProcessSRVHeap;

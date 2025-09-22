@@ -62,6 +62,11 @@ bool NeneApp::Initialize()
     BuildPostProcessSignature();
     BuildPostProcessPSO();
 
+    // Initialize Particle System
+    UINT particleDescriptorOffset = 4 + (UINT)mTextures.size() + 1; // После GBuffer (4) + текстур + 1 для post-process
+    mParticleSystem = std::make_unique<ParticleSystem>(m_device.Get(), m_commandList.Get(), 
+        mSrvDescriptorHeap.Get(), particleDescriptorOffset, 4096, SimpleMath::Vector3(0.0f, 2.0f, 0.0f)); // Пример: 4096 частиц, origin в (0,2,0)
+
     InitCamera();
 
     ImGui_ImplDX12_InitInfo init_info = {};
@@ -151,6 +156,12 @@ void NeneApp::UpdateInputs(const GameTimer& gt)
     if (m_inputDevice->IsKeyDown(Keys::G)) {
         ShootLight(m_camera.GetPosition(), GetRandomSize(), m_camera.GetLook() * GetRandomForce(), GetRandomColor(), 0.5f);
         m_inputDevice->RemovePressedKey(Keys::G);
+    }
+
+    // Emit particles on 'P' key
+    if (m_inputDevice->IsKeyDown(Keys::P)) {
+        mParticleSystem->Emit(50); // Эмитируем 50 частиц
+        m_inputDevice->RemovePressedKey(Keys::P);
     }
 
     m_inputDevice->MouseOffset = Vector2(0.0f, 0.0f);
@@ -626,6 +637,9 @@ void NeneApp::Update(const GameTimer& gt)
     UpdateLightCB(gt);
     //UpdateLightBuffers(gt);
     UpdateVisibleRenderItems();
+
+    // Update particle system (CPU part)
+    mParticleSystem->Update(gt.DeltaTime());
 }
 
 void NeneApp::Draw(const GameTimer& gt)
@@ -662,23 +676,13 @@ void NeneApp::PopulateCommandList()
     // Reusing the command list reuses memory.
     ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), mPSOs["deferredGeo"].Get()));
 
-    //m_commandList->RSSetViewports(1, &m_viewport);
-    //m_commandList->RSSetScissorRects(1, &m_scissorRect);
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    // Clear the back buffer and depth buffer.
-    //m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Cyan, 0, nullptr);
-    //m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    // Simulate particles (GPU update)
+    mParticleSystem->Simulate(m_commandList.Get(), mMainPassCB.DeltaTime);
 
-    //// Specify the buffers we are going to render to.
-    //m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-
-    //ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-    //m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-    //m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
-
-    //auto passCB = mCurrFrameResource->PassCB->Resource();
-    //m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+    DrawDeffered();;
 
     //DrawForward();
     DrawDeffered();
@@ -2368,6 +2372,9 @@ void NeneApp::DrawDeffered()
         }
     }
 
+    // Render particles after lights (additive blend)
+    mParticleSystem->Render(m_commandList.Get(), mView, mProj);
+
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
         mPostProcessRenderTarget.Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -2654,6 +2661,13 @@ void NeneApp::DrawUI()
                 }
             }
         }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Particle System Control"))
+    {
+        ImGui::SliderFloat3("Force", &mParticleSystem->force.x, -20.0f, 20.0f, "%.1f");
+        ImGui::Text("Active Particles: %d / %d", mParticleSystem->numParticles, mParticleSystem->maxParticles);
     }
     ImGui::End();
 
