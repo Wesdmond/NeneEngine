@@ -62,10 +62,12 @@ bool NeneApp::Initialize()
     BuildPostProcessSignature();
     BuildPostProcessPSO();
 
-    // Initialize Particle System
-    UINT particleDescriptorOffset = 4 + (UINT)mTextures.size() + 1; // После GBuffer (4) + текстур + 1 для post-process
-    mParticleSystem = std::make_unique<ParticleSystem>(m_device.Get(), m_commandList.Get(), 
-        mSrvDescriptorHeap.Get(), particleDescriptorOffset, 4096, SimpleMath::Vector3(0.0f, 2.0f, 0.0f)); // Пример: 4096 частиц, origin в (0,2,0)
+    // Initialize Particle System directly
+    BuildParticleResources();
+    BuildParticleDescriptors();
+    BuildParticleCS_RS();
+    BuildParticleGfx_RS();
+    BuildParticlePSO();
 
     InitCamera();
 
@@ -159,10 +161,10 @@ void NeneApp::UpdateInputs(const GameTimer& gt)
     }
 
     // Emit particles on 'P' key
-    if (m_inputDevice->IsKeyDown(Keys::P)) {
-        mParticleSystem->Emit(50); // Эмитируем 50 частиц
-        m_inputDevice->RemovePressedKey(Keys::P);
-    }
+    //if (m_inputDevice->IsKeyDown(Keys::P)) {
+    //    mParticleSystem->Emit(50); // Эмитируем 50 частиц
+    //    m_inputDevice->RemovePressedKey(Keys::P);
+    //}
 
     m_inputDevice->MouseOffset = Vector2(0.0f, 0.0f);
     m_mouseDelta = Vector2::Zero;
@@ -639,7 +641,10 @@ void NeneApp::Update(const GameTimer& gt)
     UpdateVisibleRenderItems();
 
     // Update particle system (CPU part)
-    mParticleSystem->Update(gt.DeltaTime());
+    //UpdateParticles(gt);
+    // ♦♦♦♦♦♦♦ SimCB (dt, gravity)
+    SimCB scb{ gt.DeltaTime(), XMFLOAT3(0, -9.8f, 0) };
+    mSimCB->CopyData(0, scb);
 }
 
 void NeneApp::Draw(const GameTimer& gt)
@@ -679,10 +684,8 @@ void NeneApp::PopulateCommandList()
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
     m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    // Simulate particles (GPU update)
-    mParticleSystem->Simulate(m_commandList.Get(), mMainPassCB.DeltaTime);
-
-    DrawDeffered();;
+    //// Simulate particles (GPU update)
+    //mParticleSystem->Simulate(m_commandList.Get(), mMainPassCB.DeltaTime);
 
     //DrawForward();
     DrawDeffered();
@@ -775,7 +778,7 @@ bool NeneApp::LoadTexture(const std::string& filename)
     // TODO: logging std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-    hDesc.Offset((INT)mTextures.size() + 4, mCbvSrvDescriptorSize);
+    hDesc.Offset((INT)mTextures.size() + 4, mCbvSrvDescriptorSize); 
 
     // Basic SRV descriptor for 2D texture (d3dx12.h)
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -2238,6 +2241,232 @@ void NeneApp::BuildPostProcessPSO()
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["PostProcess"])));
 }
 
+void NeneApp::BuildParticleResources()
+{
+    const UINT stride = sizeof(Particle);
+    const UINT64 bytes = UINT64(mParticleCount) * stride;
+    // GPU buffers A/B -> DEFAULT
+    mParticlesA = d3dUtil::CreateStructuredBuffer(m_device.Get(), mParticleCount, stride, D3D12_RESOURCE_STATE_COMMON);
+    mParticlesB = d3dUtil::CreateStructuredBuffer(m_device.Get(), mParticleCount, stride, D3D12_RESOURCE_STATE_COMMON);
+    // Upload with random attributes
+    mParticlesInit = std::make_unique<UploadBuffer<Particle>>(m_device.Get(), mParticleCount, false);
+    for (UINT i = 0; i < mParticleCount; i++)
+    {
+        Particle p{};
+        p.pos = XMFLOAT3(MathHelper::RandF(-50, 50), MathHelper::RandF(30, 40), MathHelper::RandF(-50, 50));
+        p.vel = XMFLOAT3(MathHelper::RandF(0.5f, 0.5f), MathHelper::RandF(5.5f, 5.5f), MathHelper::RandF(0.5f, 0.5f));
+        p.life = p.lifetime = MathHelper::RandF(2.0f, 5.0f);
+        p.size = MathHelper::RandF(0.15f, 0.55f);
+        p.rot = 0.0f;
+        p.alive = 1;
+        p.color = XMFLOAT4(1, 1, 1, 1);
+        mParticlesInit->CopyData(i, p);
+    }
+    // --- copy upload -> A ---
+    // A: COMMON -> COPY_DEST
+    auto toCopyDest = CD3DX12_RESOURCE_BARRIER::Transition(
+        mParticlesA.Get(),
+        D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_STATE_COPY_DEST);
+    m_commandList->ResourceBarrier(1, &toCopyDest);
+    // UploadBuffer -> A
+    m_commandList->CopyBufferRegion(
+        mParticlesA.Get(), 0,
+        mParticlesInit->Resource(), 0,
+        bytes);
+    // A: COPY_DEST -> NON_PIXEL_SHADER_RESOURCE (for CS in first frame)
+    auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(
+        mParticlesA.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    m_commandList->ResourceBarrier(1, &toSRV);
+    // simCB
+    mSimCB = std::make_unique<UploadBuffer<SimCB>>(m_device.Get(), 1, true);
+}
+
+void NeneApp::BuildParticleDescriptors()
+{
+    // 5 descriptors: SRV_A, UAV_A, SRV_B, UAV_B, SRV_Sprite
+    D3D12_DESCRIPTOR_HEAP_DESC desc{};
+    desc.NumDescriptors = 5;
+    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(m_device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&mParticleHeap)));
+
+    const UINT inc = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    auto cpu = mParticleHeap->GetCPUDescriptorHandleForHeapStart();
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Format = DXGI_FORMAT_UNKNOWN;
+    srv.Buffer.FirstElement = 0;
+    srv.Buffer.NumElements = mParticleCount;
+    srv.Buffer.StructureByteStride = sizeof(Particle);
+    srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+    uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav.Format = DXGI_FORMAT_UNKNOWN;
+    uav.Buffer.FirstElement = 0;
+    uav.Buffer.NumElements = mParticleCount;
+    uav.Buffer.StructureByteStride = sizeof(Particle);
+    uav.Buffer.CounterOffsetInBytes = 0;
+    uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+
+    // SRV/UAV for A/B
+    m_device->CreateShaderResourceView(mParticlesA.Get(), &srv, cpu); // KSRV_A
+    cpu.ptr += inc;
+    m_device->CreateUnorderedAccessView(mParticlesA.Get(), nullptr, &uav, cpu); // KUAV_A
+    cpu.ptr += inc;
+    m_device->CreateShaderResourceView(mParticlesB.Get(), &srv, cpu); // KSRV_B
+    cpu.ptr += inc;
+    m_device->CreateUnorderedAccessView(mParticlesB.Get(), nullptr, &uav, cpu); // KUAV_B
+    cpu.ptr += inc;
+
+    // sprite SRV
+    //auto* tex = mTextures["texture_error"]->Resource.Get(); // texture name here, adjust to your texture
+    //D3D12_SHADER_RESOURCE_VIEW_DESC sprite;
+    //sprite.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    //sprite.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    //sprite.Format = tex->GetDesc().Format;
+    //sprite.Texture2D.MipLevels = tex->GetDesc().MipLevels;
+    //m_device->CreateShaderResourceView(tex, &sprite, cpu); // KSRV_Sprite
+}
+
+void NeneApp::BuildParticleCS_RS()
+{
+    CD3DX12_DESCRIPTOR_RANGE t0(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+    CD3DX12_DESCRIPTOR_RANGE u0(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+    CD3DX12_ROOT_PARAMETER p[3];
+    p[0].InitAsConstantBufferView(0); // b0
+    p[1].InitAsDescriptorTable(1, &t0); // t0
+    p[2].InitAsDescriptorTable(1, &u0); // u0
+
+    auto samplers = GetStaticSamplers();
+    CD3DX12_ROOT_SIGNATURE_DESC rsDesc(3, p, (UINT)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ComPtr<ID3DBlob> sig, err;
+    ThrowIfFailed(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err));
+    ThrowIfFailed(m_device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&mParticleCS_RS)));
+}
+
+void NeneApp::BuildParticleGfx_RS()
+{
+    CD3DX12_DESCRIPTOR_RANGE t0(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // particles
+    CD3DX12_DESCRIPTOR_RANGE t1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // sprite
+    CD3DX12_ROOT_PARAMETER p[3];
+    p[0].InitAsConstantBufferView(0); // b0 (PassCB)
+    p[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    p[1].InitAsDescriptorTable(1, &t0, D3D12_SHADER_VISIBILITY_PIXEL);
+    p[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    p[2].InitAsDescriptorTable(1, &t1, D3D12_SHADER_VISIBILITY_PIXEL);
+    auto samplers = GetStaticSamplers();
+    CD3DX12_ROOT_SIGNATURE_DESC rsDesc(3, p, (UINT)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    ComPtr<ID3DBlob> sig, err;
+    ThrowIfFailed(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err));
+    ThrowIfFailed(m_device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&mParticleGfx_RS)));
+}
+
+void NeneApp::BuildParticlePSO()
+{
+    auto cs = d3dUtil::CompileShader(L"Shaders\\Particle\\ParticleUpdateCS.hlsl", nullptr, "CS", "cs_5_1"); // Assume you have ParticlesCS.hlsl with the shader code
+    auto vs = d3dUtil::CompileShader(L"Shaders\\Particle\\ParticleRender.hlsl", nullptr, "VSMain", "vs_5_1"); // Assume ParticlesBillboard.hlsl for billboard VS/PS
+    auto gs = d3dUtil::CompileShader(L"Shaders\\Particle\\ParticleRender.hlsl", nullptr, "GSMain", "gs_5_1");
+    auto ps = d3dUtil::CompileShader(L"Shaders\\Particle\\ParticleRender.hlsl", nullptr, "PSMain", "ps_5_1");
+    
+    // CS PSO
+    D3D12_COMPUTE_PIPELINE_STATE_DESC c{};
+    c.pRootSignature = mParticleCS_RS.Get();
+    c.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
+    ThrowIfFailed(m_device->CreateComputePipelineState(&c, IID_PPV_ARGS(&mParticleCS_PSO)));
+
+    // Gfx PSO
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC g{};
+    g.pRootSignature = mParticleGfx_RS.Get();
+    g.VS = { vs->GetBufferPointer(), vs->GetBufferSize() };
+    g.GS = { gs->GetBufferPointer(), gs->GetBufferSize() };
+    g.PS = { ps->GetBufferPointer(), ps->GetBufferSize() };
+    g.InputLayout = { nullptr, 0 };
+    g.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    g.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT); g.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    g.SampleMask = UINT_MAX;
+    g.NumRenderTargets = 1; g.RTVFormats[0] = m_backBufferFormat;
+    g.DSVFormat = m_depthStencilFormat;
+    g.SampleDesc.Count = 1;
+    g.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    g.DepthStencilState.DepthEnable = TRUE;
+    g.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    g.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    g.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    auto& rt = g.BlendState.RenderTarget[0];
+    rt.BlendEnable = TRUE;
+    rt.SrcBlend = D3D12_BLEND_ONE; rt.DestBlend = D3D12_BLEND_ONE; rt.BlendOp = D3D12_BLEND_OP_ADD;
+    rt.SrcBlendAlpha = D3D12_BLEND_ONE; rt.DestBlendAlpha = D3D12_BLEND_ONE; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&g, IID_PPV_ARGS(&mParticleGfx_PSO)));
+}
+
+void NeneApp::UpdateParticles(const GameTimer& gt)
+{
+    const bool useA = (mCurrFrameResourceIndex % 2) == 0; // ping pong here
+    ID3D12Resource* inRes = useA ? mParticlesA.Get() : mParticlesB.Get();
+    ID3D12Resource* outRes = useA ? mParticlesB.Get() : mParticlesA.Get();
+    ID3D12DescriptorHeap* ph[] = { mParticleHeap.Get() };
+    m_commandList->SetDescriptorHeaps(1, ph);
+    m_commandList->SetComputeRootSignature(mParticleCS_RS.Get());
+    m_commandList->SetPipelineState(mParticleCS_PSO.Get());
+    // SimCB (dt, gravity)
+    SimCB scb{ gt.DeltaTime(), mParticleForce }; // Use mParticleForce from ImGui
+    mSimCB->CopyData(0, scb);
+    m_commandList->SetComputeRootConstantBufferView(0, mSimCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
+        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    // bind t0/u0
+    auto gpuStart = mParticleHeap->GetGPUDescriptorHandleForHeapStart();
+    UINT inc = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    auto gpuAt = [gpuStart, inc](UINT idx) { CD3DX12_GPU_DESCRIPTOR_HANDLE h(gpuStart); h.Offset(idx, inc); return h; };
+    m_commandList->SetComputeRootDescriptorTable(1, gpuAt(useA ? KSRV_A : KSRV_B));
+    m_commandList->SetComputeRootDescriptorTable(2, gpuAt(useA ? KUAV_B : KUAV_A));
+    UINT groups = (mParticleCount + 255) / 256;
+    m_commandList->Dispatch(groups, 1, 1);
+    // UAV barrier + out -> SRV
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(outRes));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+}
+
+void NeneApp::DrawParticles()
+{
+    const bool useA = (mCurrFrameResourceIndex % 2) == 0;
+    ID3D12DescriptorHeap* ph[] = { mParticleHeap.Get() };
+    m_commandList->SetDescriptorHeaps(1, ph);
+    // billboard render on mPostProcessRenderTarget / w depth test
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthStencilBuffer.Get(),
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, // Adjust based on your state
+        D3D12_RESOURCE_STATE_DEPTH_READ));
+    m_commandList->SetPipelineState(mParticleGfx_PSO.Get());
+    m_commandList->SetGraphicsRootSignature(mParticleGfx_RS.Get());
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    m_commandList->SetGraphicsRootConstantBufferView(0, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+    // t0 = particles (outRes), t1 = sprite
+    auto gpuStart = mParticleHeap->GetGPUDescriptorHandleForHeapStart();
+    UINT inc = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    auto gpuAt = [gpuStart, inc](UINT idx) { CD3DX12_GPU_DESCRIPTOR_HANDLE h(gpuStart); h.Offset(idx, inc); return h; };
+    m_commandList->SetGraphicsRootDescriptorTable(1, gpuAt(useA ? KSRV_B : KSRV_A));
+    m_commandList->SetGraphicsRootDescriptorTable(2, gpuAt(KSRV_Sprite));
+    m_commandList->OMSetRenderTargets(1, &mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(), TRUE, &CurrentBackBufferView()); // Adjust to your DSV
+    m_commandList->DrawInstanced(4, mParticleCount, 0, 0);
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthStencilBuffer.Get(),
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)); // Restore state
+}
+
 void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -2373,7 +2602,59 @@ void NeneApp::DrawDeffered()
     }
 
     // Render particles after lights (additive blend)
-    mParticleSystem->Render(m_commandList.Get(), mView, mProj);
+    //DrawParticles();
+    const bool useA = (mCurrFrameResourceIndex % 2) == 0; // ping pong here
+    ID3D12Resource* inRes = useA ? mParticlesA.Get() : mParticlesB.Get();
+    ID3D12Resource* outRes = useA ? mParticlesB.Get() : mParticlesA.Get();
+    ID3D12DescriptorHeap* ph[] = {mParticleHeap.Get()};
+    m_commandList->SetDescriptorHeaps(1, ph);
+    m_commandList->SetComputeRootSignature(mParticleCS_RS.Get());
+    m_commandList->SetPipelineState(mParticleCS_PSO.Get());
+    
+    m_commandList->SetComputeRootConstantBufferView(0, mSimCB->Resource()->GetGPUVirtualAddress());
+    // command list > set compute root
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
+        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    // bind t0/u0
+    auto gpuStart = mParticleHeap->GetGPUDescriptorHandleForHeapStart();
+    UINT inc = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    auto gpuAt = [&](UINT idx) { auto h = gpuStart; h.ptr += idx * inc; return h; };
+    m_commandList->SetComputeRootDescriptorTable(1, gpuAt(useA ? KSRV_A : KSRV_B));
+    m_commandList->SetComputeRootDescriptorTable(2, gpuAt(useA ? KUAV_B : KUAV_A));
+    UINT groups = (mParticleCount + 255) / 256;
+    m_commandList->Dispatch(groups, 1, 1);
+    // UAV barrier + out -> SRV
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(outRes));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    // billboard render on mPostProcessRenderTarget / w depth test
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthStencilBuffer.Get(),
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_DEPTH_READ));
+
+    /*m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthStencilBuffer.Get(),
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));*/
+
+    m_commandList->SetPipelineState(mParticleGfx_PSO.Get());
+    m_commandList->SetGraphicsRootSignature(mParticleGfx_RS.Get());
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+    m_commandList->SetGraphicsRootConstantBufferView(0, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+    // t0 = particles (outRes), t1 = sprite
+    m_commandList->SetGraphicsRootDescriptorTable(1, gpuAt(useA ? KSRV_B : KSRV_A));
+    m_commandList->SetGraphicsRootDescriptorTable(2, gpuAt(KSRV_Sprite));
+    m_commandList->OMSetRenderTargets(1, &mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(), TRUE, &DepthStencilView());
+    m_commandList->DrawInstanced(mParticleCount, 1, 0, 0);
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthStencilBuffer.Get(),
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    // END OF PARTICLES
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
         mPostProcessRenderTarget.Get(),
@@ -2388,6 +2669,7 @@ void NeneApp::DrawDeffered()
     // Post-Process
     m_commandList->SetPipelineState(mPSOs["PostProcess"].Get());
     m_commandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
     m_commandList->SetGraphicsRootDescriptorTable(0, srvHandles[0]);
     m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
     m_commandList->SetGraphicsRootDescriptorTable(2, mPostProcessSrvGpuHandle);
@@ -2664,12 +2946,12 @@ void NeneApp::DrawUI()
     }
     ImGui::End();
 
-    if (ImGui::Begin("Particle System Control"))
-    {
-        ImGui::SliderFloat3("Force", &mParticleSystem->force.x, -20.0f, 20.0f, "%.1f");
-        ImGui::Text("Active Particles: %d / %d", mParticleSystem->numParticles, mParticleSystem->maxParticles);
-    }
-    ImGui::End();
+    //if (ImGui::Begin("Particle System Control"))
+    //{
+    //    ImGui::SliderFloat3("Force", &mParticleSystem->force.x, -20.0f, 20.0f, "%.1f");
+    //    ImGui::Text("Active Particles: %d / %d", mParticleSystem->numParticles, mParticleSystem->maxParticles);
+    //}
+    //ImGui::End();
 
     m_uiManager.Render(m_commandList.Get());
 }

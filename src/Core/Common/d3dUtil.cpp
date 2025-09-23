@@ -125,6 +125,21 @@ Microsoft::WRL::ComPtr<ID3D12Resource> d3dUtil::CreateDefaultBuffer(
     return defaultBuffer;
 }
 
+Microsoft::WRL::ComPtr<ID3D12Resource> d3dUtil::CreateStructuredBuffer(ID3D12Device* device, UINT elementCount, UINT elementSize, D3D12_RESOURCE_STATES initialState)
+{
+    UINT64 byteSize = static_cast<UINT64>(elementCount) * elementSize;
+    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
+    ThrowIfFailed(device->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        initialState,
+        nullptr,
+        IID_PPV_ARGS(buffer.GetAddressOf())));
+    return buffer;
+}
+
 ComPtr<ID3DBlob> d3dUtil::CompileShader(
 	const std::wstring& filename,
 	const D3D_SHADER_MACRO* defines,

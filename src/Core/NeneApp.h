@@ -7,7 +7,6 @@
 #include <SimpleMath.h>
 #include "FrameResource.h"
 #include "GBuffer.h"
-#include "ParticleSystem.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -106,6 +105,17 @@ struct LightItem {
     bool Visible = false;
 };
 
+struct Particle {
+    XMFLOAT3 pos;
+    XMFLOAT3 vel;
+    float life;
+    float lifetime;
+    float size;
+    float rot;
+    int alive;
+    XMFLOAT4 color;
+};
+
 const int MAX_DYNAMIC_LIGHTS = 100;
 struct DynamicLight {
     std::shared_ptr<LightItem> lightRI;
@@ -151,13 +161,18 @@ private:
     void BuildRenderItems();
 #pragma endregion
 
-#pragma region post-process
+    // post-process
     void BuildPostProcessHeaps();
     void BuildPostProcessResources();
     void BuildPostProcessSignature();
     void BuildPostProcessPSO();
-#pragma endregion
 
+    // particles
+    void BuildParticleResources();
+    void BuildParticleDescriptors();
+    void BuildParticleCS_RS();
+    void BuildParticleGfx_RS();
+    void BuildParticlePSO();
 
     void BuildPSOs();
 	void BuildTextureSRVs();
@@ -167,6 +182,7 @@ private:
     void DrawForward();
     void DrawDeffered();
     void DrawUI();
+    void DrawParticles();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -178,6 +194,7 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightCB(const GameTimer& gt);
+    void UpdateParticles(const GameTimer& gt);
 
     void UpdateVisibleRenderItems();
     DirectX::BoundingBox ComputeBounds(const std::vector<Vertex>& verts);
@@ -185,7 +202,6 @@ private:
     Camera m_camera;
     UIManager m_uiManager;
     std::shared_ptr<InputDevice> m_inputDevice;
-    std::unique_ptr<ParticleSystem> mParticleSystem;
 
     // GBuffer
     GBuffer m_gBuffer;
@@ -264,6 +280,25 @@ private:
     CD3DX12_GPU_DESCRIPTOR_HANDLE mPostProcessSrvGpuHandle;
 
 #pragma endregion
+
+#pragma region Particle System
+    ComPtr<ID3D12Resource> mParticlesA; // default SRV/UAV
+    ComPtr<ID3D12Resource> mParticlesB; // default SRV/UAV
+    std::unique_ptr<UploadBuffer<Particle>> mParticlesInit; // UPLOAD
+    struct SimCB { float dt; XMFLOAT3 gravity; };
+    std::unique_ptr<UploadBuffer<SimCB>> mSimCB; // UPLOAD
+    // shader-visible heap for SRV/UAV particles + SRV billboards
+    ComPtr<ID3D12DescriptorHeap> mParticleHeap;
+    enum { KSRV_A = 0, KUAV_A = 1, KSRV_B = 2, KUAV_B = 3, KSRV_Sprite = 4 };
+    ComPtr<ID3D12RootSignature> mParticleCS_RS; // CS RS
+    ComPtr<ID3D12RootSignature> mParticleGfx_RS; // PS RS
+    ComPtr<ID3D12PipelineState> mParticleCS_PSO; // CS PSO
+    ComPtr<ID3D12PipelineState> mParticleGfx_PSO; // PS PSO
+    UINT mParticleCount = 1000;
+    SimpleMath::Vector3 mParticleForce = SimpleMath::Vector3(0.0f, 2.0f, 0.0f); // For ImGui control, replacing origin
+#pragma endregion
+
+#pragma region Utility
     bool mIsWireframe = false;
     float m_cameraSpeed = 20;
     float m_mouseSensitivity = 0.01f;
@@ -272,4 +307,5 @@ private:
     DirectX::SimpleMath::Vector2 m_mousePos     = DirectX::SimpleMath::Vector2::Zero;
     DirectX::SimpleMath::Vector2 m_mouseDelta   = DirectX::SimpleMath::Vector2::Zero;
     float m_mouseWheelDelta;
+#pragma endregion
 };

@@ -38,7 +38,6 @@
     <ClCompile Include="src\Core\Inputs\InputDevice.cpp" />
     <ClCompile Include="src\Core\NeneApp.cpp" />
     <ClCompile Include="src\Core\NeneEngine.cpp" />
-    <ClCompile Include="src\Core\ParticleSystem.cpp" />
     <ClCompile Include="src\Core\UIManager.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\Core\WinMain.cpp" />
@@ -71,7 +70,6 @@
     <ClInclude Include="src\Core\Inputs\Keys.h" />
     <ClInclude Include="src\Core\NeneApp.h" />
     <ClInclude Include="src\Core\NeneEngine.h" />
-    <ClInclude Include="src\Core\ParticleSystem.h" />
     <ClInclude Include="src\Core\UIManager.h" />
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\FrameworkObjects\Component.h" />

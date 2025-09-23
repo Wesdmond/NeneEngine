@@ -1,81 +1,73 @@
+// ParticleSystem.h
 #pragma once
 
-#include "Common/d3dUtil.h"
-#include "SimpleMath.h"
+#include <d3d12.h>
+#include <wrl.h>
+#include <memory>
+#include <DirectXMath.h>
+#include "Common/UploadBuffer.h"
+#include "Common/d3dx12.h"
+#include "Common/MathHelper.h"
+#include "Common/GameTimer.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-// Структура частицы
-struct Particle {
-    SimpleMath::Vector3 pos;        // текущая позиция частицы
-    SimpleMath::Vector3 prevPos;    // предыдущая позиция частицы
-    SimpleMath::Vector3 velocity;   // скорость и направление
-    SimpleMath::Vector3 acceleration; // ускорение
-    float energy;                   // энергия (время жизни)
-    float size;                     // размер частицы
-    float sizeDelta;                // изменение размера с течением времени
-    float weight;                   // вес (влияние гравитации)
-    float weightDelta;              // изменение веса с течением времени
-    float color[4];                 // текущий цвет (RGBA)
-    float colorDelta[4];            // изменение цвета с течением времени
+struct Particle
+{
+    XMFLOAT3 pos;
+    float lifetime;
+    XMFLOAT3 vel;
+    float life;
+    float size;
+    float rot;
+    int alive;
+    XMFLOAT4 color;
 };
 
-// Класс ParticleSystem
-class ParticleSystem {
+class ParticleSystem
+{
 public:
-    ParticleSystem(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT descriptorOffset, int maxParticles, SimpleMath::Vector3 origin);
-    virtual ~ParticleSystem();
+    ParticleSystem(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT descriptorOffset, UINT maxParticles, XMFLOAT3 origin);
+    ~ParticleSystem() = default;
 
-    virtual void Update(float elapsedTime);
-    virtual void Simulate(ID3D12GraphicsCommandList* cmdList, float deltaTime);
-    virtual void Render(ID3D12GraphicsCommandList* cmdList, const SimpleMath::Matrix& view, const SimpleMath::Matrix& proj);
-    virtual int Emit(int numParticles);
-    virtual void InitializeSystem();
-    virtual void KillSystem();
+    void Update(const GameTimer& gt);
+    void Draw(ID3D12GraphicsCommandList* cmdList, D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle, D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle, const PassConstants& passCB);
 
-public:
-    virtual void InitializeParticle(int index);
-
-    // Приватные члены данных
-    Particle* particleList;             // массив частиц
-    int maxParticles;                   // максимальное количество частиц
-    int numParticles;                   // текущее количество частиц
-    SimpleMath::Vector3 origin;         // центр системы частиц
-    float accumulatedTime;              // накопленное время для эмиссии
-    SimpleMath::Vector3 force;          // внешняя сила (гравитация, ветер и т.д.)
-
-    // DirectX 12 ресурсы
-    ComPtr<ID3D12Resource> mParticleBuffer1; // StructuredBuffer для частиц
-    ComPtr<ID3D12Resource> mParticleBuffer2; // Второй StructuredBuffer для ping-pong
-    ID3D12Resource* mCurrentBuffer;         // Текущий буфер
-    ComPtr<ID3D12Resource> mUploadBuffer;   // Буфер для загрузки начальных данных
-
-    // Дескрипторы
-    D3D12_GPU_DESCRIPTOR_HANDLE mAppendUAV; // UAV для AppendStructuredBuffer
-    D3D12_GPU_DESCRIPTOR_HANDLE mConsumeSRV; // SRV для ConsumeStructuredBuffer
-    D3D12_GPU_DESCRIPTOR_HANDLE mBuffer1UAV;
-    D3D12_GPU_DESCRIPTOR_HANDLE mBuffer1SRV;
-    D3D12_GPU_DESCRIPTOR_HANDLE mBuffer2UAV;
-    D3D12_GPU_DESCRIPTOR_HANDLE mBuffer2SRV;
-
-    // Root signatures и PSO
-    ComPtr<ID3D12RootSignature> mComputeRootSig;
-    ComPtr<ID3D12RootSignature> mRenderRootSig;
-    ComPtr<ID3D12PipelineState> mComputePSO;
-    ComPtr<ID3D12PipelineState> mRenderPSO;
-
-    // Устройство и дескрипторный хип
-    ID3D12Device* mDevice;
-    ID3D12GraphicsCommandList* mInitialCmdList;
-    ID3D12DescriptorHeap* mSrvHeap;
-    UINT mDescriptorOffset;
-    UINT mDescriptorSize;
+    XMFLOAT3 force = XMFLOAT3(0.0f, -9.8f, 0.0f); // Public for ImGui control
+    UINT numParticles = 0;
+    UINT maxParticles;
 
 private:
-    void BuildBuffers();
-    void CreateDescriptors();
+    void BuildResources(ID3D12GraphicsCommandList* cmdList);
+    void BuildDescriptors();
+    void BuildRootSignatures();
     void BuildShadersAndPSOs();
-    void SwapBuffers();
-    D3D12_VERTEX_BUFFER_VIEW VertexBufferView() const;
+    void Simulate(const GameTimer& gt);
+    void Render();
+
+    ID3D12Device* md3dDevice;
+    ID3D12GraphicsCommandList* mCommandList;
+    ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap; // Main SRV heap from app
+    UINT mDescriptorOffset; // Starting index in the heap for particle descriptors
+
+    ComPtr<ID3D12Resource> mParticlesA;
+    ComPtr<ID3D12Resource> mParticlesB;
+    std::unique_ptr<UploadBuffer<Particle>> mParticlesInit;
+    struct SimCB { float dt; XMFLOAT3 gravity; };
+    std::unique_ptr<UploadBuffer<SimCB>> mSimCB;
+
+    ComPtr<ID3D12DescriptorHeap> mParticleHeap;
+    enum { KSRV_A = 0, KUAV_A = 1, KSRV_B = 2, KUAV_B = 3, KSRV_Sprite = 4 };
+
+    ComPtr<ID3D12RootSignature> mParticleCS_RS;
+    ComPtr<ID3D12RootSignature> mParticleGfx_RS;
+    ComPtr<ID3D12PipelineState> mParticleCS_PSO;
+    ComPtr<ID3D12PipelineState> mParticleGfx_PSO;
+
+    UINT mParticleCount;
+    XMFLOAT3 mOrigin;
+
+    // Assume a checkerboard texture or replace with actual texture
+    ComPtr<ID3D12Resource> mSpriteTexture; // Placeholder, load your texture
 };

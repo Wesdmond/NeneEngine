@@ -1,17 +1,29 @@
 // Общая структура частицы
+//struct Particle
+//{
+//    float3 pos;
+//    float3 prevPos;
+//    float3 velocity;
+//    float3 acceleration;
+//    float energy;
+//    float size;
+//    float sizeDelta;
+//    float weight;
+//    float weightDelta;
+//    float4 color;
+//    float4 colorDelta;
+//};
+
 struct Particle
 {
     float3 pos;
-    float3 prevPos;
-    float3 velocity;
-    float3 acceleration;
-    float energy;
+    float3 vel;
+    float life;
+    float lifetime;
     float size;
-    float sizeDelta;
-    float weight;
-    float weightDelta;
+    float rot;
+    int alive;
     float4 color;
-    float4 colorDelta;
 };
 
 // Входной буфер для вершинного шейдера

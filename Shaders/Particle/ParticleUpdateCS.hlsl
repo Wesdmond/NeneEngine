@@ -1,41 +1,65 @@
+//struct Particle
+//{
+//    float3 pos;
+//    float3 prevPos;
+//    float3 velocity;
+//    float3 acceleration;
+//    float energy;
+//    float size;
+//    float sizeDelta;
+//    float weight;
+//    float weightDelta;
+//    float4 color;
+//    float4 colorDelta;
+//};
+
 struct Particle
 {
     float3 pos;
-    float3 prevPos;
-    float3 velocity;
-    float3 acceleration;
-    float energy;
+    float3 vel;
+    float life;
+    float lifetime;
     float size;
-    float sizeDelta;
-    float weight;
-    float weightDelta;
+    float rot;
+    int alive;
     float4 color;
-    float4 colorDelta;
 };
 
-cbuffer Constants : register(b0)
+// Shaders/ParticlesCS.hlsl (the last image shader)
+StructuredBuffer<Particle> gin : register(t0);
+RWStructuredBuffer<Particle> gOut : register(u0);
+
+cbuffer SimCB : register(b0)
 {
     float dt;
-    float3 force;
+    float3 gravity;
 };
 
-ConsumeStructuredBuffer<Particle> gInput : register(u0);
-AppendStructuredBuffer<Particle> gOutput : register(u1);
-
 [numthreads(256, 1, 1)]
-void CSMain(uint3 threadID : SV_DispatchThreadID)
+void CS(uint3 id : SV_DispatchThreadID)
 {
-    Particle p = gInput.Consume();
-
-    p.energy -= dt;
-    if (p.energy > 0.0f)
+    uint i = id.x;
+    Particle p = gin[i];
+    if (p.alive != 0)
     {
-        p.prevPos = p.pos;
-        p.velocity += (p.acceleration + p.weight * force) * dt;
-        p.pos += p.velocity * dt;
-        p.size += p.sizeDelta * dt;
-        p.weight += p.weightDelta * dt;
-        p.color += p.colorDelta * dt;
-        gOutput.Append(p);
+        p.vel += gravity * dt;
+        p.pos += p.vel * dt;
+        p.life -= dt;
+#ifdef JUMP
+        if (p.pos.y < 0.0)
+        {
+            p.pos.y = 0.0;
+            p.vel.y = abs(p.vel.y) * 0.5;
+        }
+#endif // Jump
+        if (p.life < 0)
+        {
+            p.alive = 0;
+            p.life = p.lifetime;
+            p.vel = float3(0, -1.5, 0);
+            p.pos.y = 35.0;
+            p.alive = 1;
+        }
     }
+    gOut[i] = p;
 }

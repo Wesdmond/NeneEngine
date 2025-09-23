@@ -68,11 +68,43 @@ bool DX12App::LoadPipeline()
 
 	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&m_dxgiFactory)));
 
-	// Try to create hardware device.
-	HRESULT hardwareResult = D3D12CreateDevice(
-		nullptr,             // default adapter
-		D3D_FEATURE_LEVEL_12_0,
-		IID_PPV_ARGS(&m_device));
+	// Перечисляем адаптеры
+	ComPtr<IDXGIAdapter1> adapter;
+	HRESULT hardwareResult;
+	for (UINT adapterIndex = 0;
+		m_dxgiFactory->EnumAdapters1(adapterIndex, &adapter) != DXGI_ERROR_NOT_FOUND;
+		++adapterIndex)
+	{
+		DXGI_ADAPTER_DESC1 desc;
+		adapter->GetDesc1(&desc);
+
+		// Вывод имени адаптера в консоль (для отладки)
+		OutputDebugString(desc.Description);
+		OutputDebugString(L"\n");
+
+		// Проверяем описание адаптера (например, по имени или другим характеристикам)
+		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+		{
+			// Пропускаем программный адаптер (например, Microsoft Basic Render Driver)
+			continue;
+		}
+
+		// Пример: выбираем адаптер по имени
+		if (wcscmp(desc.Description, L"NVIDIA GeForce RTX 4070 Laptop GPU") == 0)
+		{
+			if (SUCCEEDED(hardwareResult = D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&m_device))))
+			{
+				// Устройство успешно создано
+				break;
+			}
+		}
+	}
+
+	//// Try to create hardware device.
+	//HRESULT hardwareResult = D3D12CreateDevice(
+	//	nullptr,             // default adapter
+	//	D3D_FEATURE_LEVEL_12_0,
+	//	IID_PPV_ARGS(&m_device));
 
 	// Fallback to WARP device.
 	if(FAILED(hardwareResult))

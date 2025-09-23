@@ -123,6 +123,12 @@ public:
         UINT64 byteSize,
         Microsoft::WRL::ComPtr<ID3D12Resource>& uploadBuffer);
 
+	static Microsoft::WRL::ComPtr<ID3D12Resource> CreateStructuredBuffer(
+		ID3D12Device* device,
+		UINT elementCount,
+		UINT elementSize,
+		D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON);
+
 	static Microsoft::WRL::ComPtr<ID3DBlob> CompileShader(
 		const std::wstring& filename,
 		const D3D_SHADER_MACRO* defines,
