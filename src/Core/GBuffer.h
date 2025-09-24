@@ -19,6 +19,8 @@ public:
 
     std::vector<D3D12_GPU_DESCRIPTOR_HANDLE> GetSRVs() const { return m_gbufferSRVs; }
     D3D12_CPU_DESCRIPTOR_HANDLE GetDepthSRV() const { return m_depthSRV; }
+    ID3D12Resource* GetDepthResource() const { return m_depthBuffer.Get(); }
+    D3D12_CPU_DESCRIPTOR_HANDLE GetDSV() const { return m_dsvHandle; }
 
     UINT Width() const { return m_width; }
     UINT Height() const { return m_height; }

@@ -57,7 +57,7 @@ void CS(uint3 id : SV_DispatchThreadID)
             p.alive = 0;
             p.life = p.lifetime;
             p.vel = float3(0, -1.5, 0);
-            p.pos.y = 35.0;
+            p.pos.y = 1.0;
             p.alive = 1;
         }
     }

@@ -12,7 +12,7 @@ float4 PS(PS_IN input) : SV_Target
     
     float grainIntensity = 0.1;
     
-    float noise = Random(input.TexC * gRenderTargetSize, gTotalTime);
+    float noise = Random(input.TexC, gTotalTime);
 
     float3 grain = noise * grainIntensity;
     return float4(litColor.rgb + grain, litColor.a);

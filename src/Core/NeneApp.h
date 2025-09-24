@@ -106,14 +106,14 @@ struct LightItem {
 };
 
 struct Particle {
-    XMFLOAT3 pos;
-    XMFLOAT3 vel;
+    SimpleMath::Vector3 pos;
+    SimpleMath::Vector3 vel;
     float life;
     float lifetime;
     float size;
     float rot;
     int alive;
-    XMFLOAT4 color;
+    SimpleMath::Color color;
 };
 
 const int MAX_DYNAMIC_LIGHTS = 100;
@@ -194,7 +194,6 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightCB(const GameTimer& gt);
-    void UpdateParticles(const GameTimer& gt);
 
     void UpdateVisibleRenderItems();
     DirectX::BoundingBox ComputeBounds(const std::vector<Vertex>& verts);
@@ -284,6 +283,13 @@ private:
 #pragma region Particle System
     ComPtr<ID3D12Resource> mParticlesA; // default SRV/UAV
     ComPtr<ID3D12Resource> mParticlesB; // default SRV/UAV
+    ID3D12Resource* inRes;
+    ID3D12Resource* outRes;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv_ParticleA;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE uav_ParticleA;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv_ParticleB;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE uav_ParticleB;
+
     std::unique_ptr<UploadBuffer<Particle>> mParticlesInit; // UPLOAD
     struct SimCB { float dt; XMFLOAT3 gravity; };
     std::unique_ptr<UploadBuffer<SimCB>> mSimCB; // UPLOAD

@@ -26,10 +26,8 @@ struct Particle
     float4 color;
 };
 
-// Входной буфер для вершинного шейдера
 StructuredBuffer<Particle> gParticles : register(t0);
 
-// Выход вершинного шейдера (вход геометрического шейдера)
 struct GSInput
 {
     float3 pos : POSITION;
@@ -37,13 +35,25 @@ struct GSInput
     float size : SIZE;
 };
 
-// Константы для рендеринга
 cbuffer Constants : register(b0)
 {
-    float4x4 viewProj;
+    float4x4 gView;
+    float4x4 gInvView;
+    float4x4 gProj;
+    float4x4 gInvProj;
+    float4x4 gViewProj;
+    float4x4 gInvViewProj;
+    float3 gEyePosW;
+    float cbPerObjectPad1;
+    float2 gRenderTargetSize;
+    float2 gInvRenderTargetSize;
+    float gNearZ;
+    float gFarZ;
+    float gTotalTime;
+    float gDeltaTime;
+    float4 gAmbientLight;
 };
 
-// Выход геометрического шейдера (вход пиксельного шейдера)
 struct PSInput
 {
     float4 pos : SV_POSITION;
@@ -77,29 +87,28 @@ void GSMain(point GSInput input[1], inout TriangleStream<PSInput> output)
     vertex.color = color;
 
     // Левый нижний угол
-    vertex.pos = mul(float4(pos - right * size + up * size, 1.0), viewProj);
+    vertex.pos = mul(float4(pos - right * size + up * size, 1.0), gViewProj);
     vertex.uv = float2(0, 0);
     output.Append(vertex);
 
     // Левый верхний угол
-    vertex.pos = mul(float4(pos - right * size - up * size, 1.0), viewProj);
+    vertex.pos = mul(float4(pos - right * size - up * size, 1.0), gViewProj);
     vertex.uv = float2(0, 1);
     output.Append(vertex);
 
     // Правый нижний угол
-    vertex.pos = mul(float4(pos + right * size + up * size, 1.0), viewProj);
+    vertex.pos = mul(float4(pos + right * size + up * size, 1.0), gViewProj);
     vertex.uv = float2(1, 0);
     output.Append(vertex);
 
     // Правый верхний угол
-    vertex.pos = mul(float4(pos + right * size - up * size, 1.0), viewProj);
+    vertex.pos = mul(float4(pos + right * size - up * size, 1.0), gViewProj);
     vertex.uv = float2(1, 1);
     output.Append(vertex);
 
     output.RestartStrip();
 }
 
-// Пиксельный шейдер
 float4 PSMain(PSInput input) : SV_TARGET
 {
     return input.color;
