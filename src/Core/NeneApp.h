@@ -301,7 +301,7 @@ private:
     ComPtr<ID3D12RootSignature> mParticleGfx_RS; // PS RS
     ComPtr<ID3D12PipelineState> mParticleCS_PSO; // CS PSO
     ComPtr<ID3D12PipelineState> mParticleGfx_PSO; // PS PSO
-    UINT mParticleCount = 10000;
+    UINT mParticleCount = 100000;
     SimpleMath::Vector3 mParticleForce = SimpleMath::Vector3(0.0f, 2.0f, 0.0f); // For ImGui control, replacing origin
 #pragma endregion
 

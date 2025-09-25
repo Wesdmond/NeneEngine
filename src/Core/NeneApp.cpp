@@ -2352,13 +2352,14 @@ void NeneApp::BuildParticleCS_RS()
 {
     CD3DX12_DESCRIPTOR_RANGE t0(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
     CD3DX12_DESCRIPTOR_RANGE u0(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
-    CD3DX12_ROOT_PARAMETER p[3];
+    CD3DX12_ROOT_PARAMETER p[4];
     p[0].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_ALL); // b0
-    p[1].InitAsDescriptorTable(1, &t0, D3D12_SHADER_VISIBILITY_ALL); // t0
-    p[2].InitAsDescriptorTable(1, &u0, D3D12_SHADER_VISIBILITY_ALL); // u0
+    p[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_ALL); // b0
+    p[2].InitAsDescriptorTable(1, &t0, D3D12_SHADER_VISIBILITY_ALL); // t0
+    p[3].InitAsDescriptorTable(1, &u0, D3D12_SHADER_VISIBILITY_ALL); // u0
 
     auto samplers = GetStaticSamplers();
-    CD3DX12_ROOT_SIGNATURE_DESC rsDesc(3, p, (UINT)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    CD3DX12_ROOT_SIGNATURE_DESC rsDesc(4, p, (UINT)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     ComPtr<ID3DBlob> sig, err;
     ThrowIfFailed(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err));
@@ -2454,12 +2455,13 @@ void NeneApp::DrawParticles()
     m_commandList->SetPipelineState(mParticleCS_PSO.Get());
 
     m_commandList->SetComputeRootConstantBufferView(0, mSimCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->SetComputeRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
     // command list > set compute root
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
         D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
     // bind t0/u0
-    m_commandList->SetComputeRootDescriptorTable(1, srv_InRes);
-    m_commandList->SetComputeRootDescriptorTable(2, uav_OutRes);
+    m_commandList->SetComputeRootDescriptorTable(2, srv_InRes);
+    m_commandList->SetComputeRootDescriptorTable(3, uav_OutRes);
     UINT groups = (mParticleCount + 255) / 256;
     m_commandList->Dispatch(groups, 1, 1);
 
