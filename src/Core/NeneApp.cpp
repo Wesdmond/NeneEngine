@@ -691,7 +691,11 @@ void NeneApp::PopulateCommandList()
     //mParticleSystem->Simulate(m_commandList.Get(), mMainPassCB.DeltaTime);
 
     //DrawForward();
+    m_gBuffer.BindForGeometryPass(m_commandList.Get());
     DrawDeffered();
+    DrawParticles();
+    DrawPostProcess();
+    m_gBuffer.Unbind(m_commandList.Get());
 
 // UI 
     DrawUI();
@@ -2257,13 +2261,13 @@ void NeneApp::BuildParticleResources()
     for (UINT i = 0; i < mParticleCount; i++)
     {
         Particle p{};
-        p.pos = XMFLOAT3(0, 0, 0);
-        p.vel = XMFLOAT3(MathHelper::RandF(0.5f, 0.5f), MathHelper::RandF(5.5f, 5.5f), MathHelper::RandF(0.5f, 0.5f));
+        p.pos = XMFLOAT3(MathHelper::RandF(-50.5f, 50.5f), 40.5f, MathHelper::RandF(-50.5f, 50.5f));
+        p.vel = XMFLOAT3(MathHelper::RandF(0.5f, 0.5f), MathHelper::RandF(-5.5f, 5.5f), MathHelper::RandF(0.5f, 0.5f));
         p.life = p.lifetime = MathHelper::RandF(2.0f, 5.0f);
-        p.size = MathHelper::RandF(0.15f, 0.55f);
+        p.size = MathHelper::RandF(0.15f, 0.35f);
         p.rot = 0.0f;
         p.alive = 1;
-        p.color = XMFLOAT4(1, 1, 1, 1);
+        p.color = XMFLOAT4(MathHelper::RandF(0.f, 1.f), MathHelper::RandF(0.f, 1.f), MathHelper::RandF(0.f, 1.f), 1);
         mParticlesInit->CopyData(i, p);
     }
     // --- copy upload -> A ---
@@ -2367,7 +2371,7 @@ void NeneApp::BuildParticleGfx_RS()
     CD3DX12_DESCRIPTOR_RANGE t1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // sprite
     CD3DX12_ROOT_PARAMETER p[3];
     p[0].InitAsConstantBufferView(0, D3D12_SHADER_VISIBILITY_ALL); // b0 (PassCB)
-    p[1].InitAsDescriptorTable(1, &t0, D3D12_SHADER_VISIBILITY_VERTEX);
+    p[1].InitAsDescriptorTable(1, &t0, D3D12_SHADER_VISIBILITY_GEOMETRY);
     p[2].InitAsDescriptorTable(1, &t1, D3D12_SHADER_VISIBILITY_PIXEL);
     auto samplers = GetStaticSamplers();
     CD3DX12_ROOT_SIGNATURE_DESC rsDesc(3, p, (UINT)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
@@ -2417,34 +2421,100 @@ void NeneApp::BuildParticlePSO()
 
 void NeneApp::DrawParticles()
 {
-    const bool useA = (mCurrFrameResourceIndex % 2) != 0;
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXBeginEvent(m_commandList.Get(), PIX_COLOR(128, 128, 128), L"Draw Particles");
+#endif
 
+    // Swap buffers
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv_InRes;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE uav_InRes;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv_OutRes;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE uav_OutRes;
+    if (inRes == mParticlesA.Get()) {
+        inRes = mParticlesB.Get();
+        outRes = mParticlesA.Get();
 
+        srv_InRes = srv_ParticleB;
+        uav_InRes = uav_ParticleB;
+        srv_OutRes = srv_ParticleA;
+        uav_OutRes = uav_ParticleA;
+    }
+    else {
+        inRes = mParticlesA.Get();
+        outRes = mParticlesB.Get();
+
+        srv_InRes = srv_ParticleA;
+        uav_InRes = uav_ParticleA;
+        srv_OutRes = srv_ParticleB;
+        uav_OutRes = uav_ParticleB;
+    }
     ID3D12DescriptorHeap* ph[] = { mParticleHeap.Get() };
     m_commandList->SetDescriptorHeaps(1, ph);
+    m_commandList->SetComputeRootSignature(mParticleCS_RS.Get());
+    m_commandList->SetPipelineState(mParticleCS_PSO.Get());
+
+    m_commandList->SetComputeRootConstantBufferView(0, mSimCB->Resource()->GetGPUVirtualAddress());
+    // command list > set compute root
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
+        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    // bind t0/u0
+    m_commandList->SetComputeRootDescriptorTable(1, srv_InRes);
+    m_commandList->SetComputeRootDescriptorTable(2, uav_OutRes);
+    UINT groups = (mParticleCount + 255) / 256;
+    m_commandList->Dispatch(groups, 1, 1);
+
+    // UAV barrier + out -> SRV
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(outRes));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
     // billboard render on mPostProcessRenderTarget / w depth test
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-        m_depthStencilBuffer.Get(),
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, // Adjust based on your state
-        D3D12_RESOURCE_STATE_DEPTH_READ));
     m_commandList->SetPipelineState(mParticleGfx_PSO.Get());
     m_commandList->SetGraphicsRootSignature(mParticleGfx_RS.Get());
     m_commandList->IASetVertexBuffers(0, 0, nullptr);
     m_commandList->IASetIndexBuffer(nullptr);
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
     m_commandList->SetGraphicsRootConstantBufferView(0, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
     // t0 = particles (outRes), t1 = sprite
-    auto gpuStart = mParticleHeap->GetGPUDescriptorHandleForHeapStart();
-    UINT inc = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    auto gpuAt = [gpuStart, inc](UINT idx) { CD3DX12_GPU_DESCRIPTOR_HANDLE h(gpuStart); h.Offset(idx, inc); return h; };
-    m_commandList->SetGraphicsRootDescriptorTable(1, gpuAt(useA ? KSRV_B : KSRV_A));
-    m_commandList->SetGraphicsRootDescriptorTable(2, gpuAt(KSRV_Sprite));
-    m_commandList->OMSetRenderTargets(1, &mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(), TRUE, &CurrentBackBufferView()); // Adjust to your DSV
-    m_commandList->DrawInstanced(4, mParticleCount, 0, 0);
+    m_commandList->SetGraphicsRootDescriptorTable(1, srv_OutRes);
+    /*m_commandList->OMSetRenderTargets(1, &mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(), TRUE, &m_gBuffer.GetDSV());*/
+    m_commandList->DrawInstanced(mParticleCount, 1, 0, 0);
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-        m_depthStencilBuffer.Get(),
+        m_gBuffer.GetDepthResource(),
         D3D12_RESOURCE_STATE_DEPTH_READ,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)); // Restore state
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXEndEvent(m_commandList.Get());
+#endif
+}
+
+void NeneApp::DrawPostProcess()
+{
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        mPostProcessRenderTarget.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    // Indicate a state transition on the resource usage.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr);
+
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    auto srvHandles = m_gBuffer.GetSRVs();
+    // Post-Process
+    m_commandList->SetPipelineState(mPSOs["PostProcess"].Get());
+    m_commandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+    m_commandList->SetGraphicsRootDescriptorTable(0, srvHandles[0]);
+    m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->SetGraphicsRootDescriptorTable(2, mPostProcessSrvGpuHandle);
+
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_commandList->DrawInstanced(3, 1, 0, 0);
 }
 
 void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
@@ -2519,9 +2589,6 @@ void NeneApp::DrawDeffered()
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
     m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    m_gBuffer.BindForGeometryPass(m_commandList.Get());
-
-
     m_commandList->SetPipelineState(mPSOs["deferredGeo"].Get());
     m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
 
@@ -2585,99 +2652,6 @@ void NeneApp::DrawDeffered()
             m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
         }
     }
-
-    // Render particles after lights (additive blend)
-    PIXBeginEvent(m_commandList.Get(), PIX_COLOR(128, 128, 128), L"Dispatch Particles:");
-
-    // Swap buffers
-    CD3DX12_GPU_DESCRIPTOR_HANDLE srv_InRes;
-    CD3DX12_GPU_DESCRIPTOR_HANDLE uav_InRes;
-    CD3DX12_GPU_DESCRIPTOR_HANDLE srv_OutRes;
-    CD3DX12_GPU_DESCRIPTOR_HANDLE uav_OutRes;
-    if (inRes == mParticlesA.Get()) {
-        inRes = mParticlesB.Get();
-        outRes = mParticlesA.Get();
-
-        srv_InRes  = srv_ParticleB;
-        uav_InRes  = uav_ParticleB;
-        srv_OutRes = srv_ParticleA;
-        uav_OutRes = uav_ParticleA;
-    }
-    else {
-        inRes = mParticlesA.Get();
-        outRes = mParticlesB.Get();
-
-        srv_InRes  = srv_ParticleA;
-        uav_InRes  = uav_ParticleA;
-        srv_OutRes = srv_ParticleB;
-        uav_OutRes = uav_ParticleB;
-    }
-    ID3D12DescriptorHeap* ph[] = {mParticleHeap.Get()};
-    m_commandList->SetDescriptorHeaps(1, ph);
-    m_commandList->SetComputeRootSignature(mParticleCS_RS.Get());
-    m_commandList->SetPipelineState(mParticleCS_PSO.Get());
-    
-    m_commandList->SetComputeRootConstantBufferView(0, mSimCB->Resource()->GetGPUVirtualAddress());
-    // command list > set compute root
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
-        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-    // bind t0/u0
-    m_commandList->SetComputeRootDescriptorTable(1, srv_InRes);
-    m_commandList->SetComputeRootDescriptorTable(2, uav_OutRes);
-    UINT groups = (mParticleCount + 255) / 256;
-    m_commandList->Dispatch(groups, 1, 1);
-    PIXEndEvent(m_commandList.Get());
-
-
-    PIXBeginEvent(m_commandList.Get(), PIX_COLOR(128, 128, 128), L"Draw Particles:");
-    // UAV barrier + out -> SRV
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(outRes));
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(outRes,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-
-    // billboard render on mPostProcessRenderTarget / w depth test
-    m_commandList->SetPipelineState(mParticleGfx_PSO.Get());
-    m_commandList->SetGraphicsRootSignature(mParticleGfx_RS.Get());
-    m_commandList->IASetVertexBuffers(0, 0, nullptr);
-    m_commandList->IASetIndexBuffer(nullptr);
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
-    m_commandList->SetGraphicsRootConstantBufferView(0, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
-    // t0 = particles (outRes), t1 = sprite
-    m_commandList->SetGraphicsRootDescriptorTable(1, srv_OutRes);
-    /*m_commandList->OMSetRenderTargets(1, &mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(), TRUE, &m_gBuffer.GetDSV());*/
-    m_commandList->DrawInstanced(mParticleCount, 1, 0, 0);
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-        m_gBuffer.GetDepthResource(),
-        D3D12_RESOURCE_STATE_DEPTH_READ,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-
-    PIXEndEvent(m_commandList.Get());
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-        mPostProcessRenderTarget.Get(),
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-    // Indicate a state transition on the resource usage.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr);
-
-
-    // Post-Process
-    m_commandList->SetPipelineState(mPSOs["PostProcess"].Get());
-    m_commandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
-    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-    m_commandList->SetGraphicsRootDescriptorTable(0, srvHandles[0]);
-    m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
-    m_commandList->SetGraphicsRootDescriptorTable(2, mPostProcessSrvGpuHandle);
-
-    m_commandList->IASetVertexBuffers(0, 0, nullptr);
-    m_commandList->IASetIndexBuffer(nullptr);
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_commandList->DrawInstanced(3, 1, 0, 0);
-
-
-    m_gBuffer.Unbind(m_commandList.Get());
 }
 
 void NeneApp::DrawUI()

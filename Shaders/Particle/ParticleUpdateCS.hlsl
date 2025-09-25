@@ -45,19 +45,13 @@ void CS(uint3 id : SV_DispatchThreadID)
         p.vel += gravity * dt;
         p.pos += p.vel * dt;
         p.life -= dt;
-#ifdef JUMP
-        if (p.pos.y < 0.0)
-        {
-            p.pos.y = 0.0;
-            p.vel.y = abs(p.vel.y) * 0.5;
-        }
-#endif // Jump
+        
         if (p.life < 0)
         {
             p.alive = 0;
             p.life = p.lifetime;
             p.vel = float3(0, -1.5, 0);
-            p.pos.y = 1.0;
+            p.pos.y = 40.5;
             p.alive = 1;
         }
     }

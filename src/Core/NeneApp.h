@@ -183,6 +183,7 @@ private:
     void DrawDeffered();
     void DrawUI();
     void DrawParticles();
+    void DrawPostProcess();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -300,7 +301,7 @@ private:
     ComPtr<ID3D12RootSignature> mParticleGfx_RS; // PS RS
     ComPtr<ID3D12PipelineState> mParticleCS_PSO; // CS PSO
     ComPtr<ID3D12PipelineState> mParticleGfx_PSO; // PS PSO
-    UINT mParticleCount = 1000;
+    UINT mParticleCount = 10000;
     SimpleMath::Vector3 mParticleForce = SimpleMath::Vector3(0.0f, 2.0f, 0.0f); // For ImGui control, replacing origin
 #pragma endregion
 
