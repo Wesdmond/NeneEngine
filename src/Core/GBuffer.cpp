@@ -8,7 +8,7 @@ using namespace DirectX;
 // G-Buffer textures (3 RT)
 DXGI_FORMAT gbufferFormats[] = { DXGI_FORMAT_R8G8B8A8_UNORM,      // Albedo
                                  DXGI_FORMAT_R32G32B32A32_FLOAT,  // Normal
-                                 DXGI_FORMAT_R32_FLOAT };         // Spec/Roughness
+                                 DXGI_FORMAT_R32G32B32A32_FLOAT };         // Spec/Roughness
 DXGI_FORMAT depthFormat = DXGI_FORMAT_D32_FLOAT;                  // Depth (DSV)
 DXGI_FORMAT depthSrvFormat = DXGI_FORMAT_R32_FLOAT;               // Depth (SRV)
 
@@ -39,11 +39,10 @@ void GBuffer::BindForGeometryPass(ID3D12GraphicsCommandList* cmdList)
     int ind = 0;
     // Clear RTs
     for (auto& rtv : m_rtvHandles) {
-        cmdList->ClearRenderTargetView(rtv, clearValue[ind++], 0, nullptr);  // Или подходящие цвета
+        cmdList->ClearRenderTargetView(rtv, clearValue[ind++], 0, nullptr);
     }
     cmdList->ClearDepthStencilView(m_dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
-    // OM Set Render Targets
     cmdList->OMSetRenderTargets(3, m_rtvHandles.data(), true, &m_dsvHandle);
 }
 

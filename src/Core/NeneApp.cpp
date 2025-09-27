@@ -53,9 +53,10 @@ bool NeneApp::Initialize()
     //BuildPlane(10.f, 10.f, 1, 1, "lowMountain", "mountain", CreateTransformMatrix(0, 0, 0), D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     //BuildPlane(10.f, 10.f, 8, 8, "hBox", "woodCrate", CreateTransformMatrix(-11, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     //BuildPlane(10.f, 10.f, 2, 2, "lBox", "woodCrate", CreateTransformMatrix(0, 0, -11), D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
+    BuildPBRTestObjects();
+    BuildSkyBox();
+    //LoadObjModel("assets/sponza.obj", (Matrix::CreateScale(0.04f)) * Matrix::CreateTranslation(0.f, -1.f, 0.f));
     BuildRenderItems();
-    BuildFrameResources();
     BuildPSOs();
 
     // Init Post-process
@@ -84,6 +85,8 @@ bool NeneApp::Initialize()
     init_info.LegacySingleSrvGpuDescriptor = m_imguiSrvHeap->GetGPUDescriptorHandleForHeapStart();
     m_uiManager.InitImGui(&init_info);
 
+    BuildFrameResources();
+
     // Execute the initialization commands.
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
@@ -109,7 +112,7 @@ void NeneApp::OnResize()
     m_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 0.1f, 1000.0f);
 
     // The window resized, so update the aspect ratio and recompute the projection matrix.
-    XMMATRIX P = XMMatrixPerspectiveFovLH(m_camera.GetFovY(), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
+    Matrix P = Matrix::CreatePerspectiveFieldOfView(m_camera.GetFovY(), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
     mProj = P;
 }
 
@@ -163,9 +166,8 @@ void NeneApp::UpdateInputs(const GameTimer& gt)
         m_inputDevice->RemovePressedKey(Keys::G);
     }
 
-    // Emit particles on 'P' key
     //if (m_inputDevice->IsKeyDown(Keys::P)) {
-    //    mParticleSystem->Emit(50); // Эмитируем 50 частиц
+    //    mParticleSystem->Emit(50);
     //    m_inputDevice->RemovePressedKey(Keys::P);
     //}
 
@@ -234,6 +236,7 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
 
             ObjectConstants objConstants;
             objConstants.World = e->World.Transpose();
+            objConstants.InvertTransposeWorld = e->World.Invert();
             objConstants.TexTransform = e->TexTransform.Transpose();
 
             currObjectCB->CopyData(e->ObjCBIndex, objConstants);
@@ -241,6 +244,21 @@ void NeneApp::UpdateObjectCBs(const GameTimer& gt)
             // Next FrameResource need to be updated too.
             e->NumFramesDirty--;
         }
+    }
+
+
+    // Update Sky Box
+    if (skyBoxRI->NumFramesDirty > 0)
+    {
+        ObjectConstants objConstants;
+        objConstants.World = skyBoxRI->World.Transpose();
+        objConstants.InvertTransposeWorld = skyBoxRI->World.Invert();
+        objConstants.TexTransform = skyBoxRI->TexTransform.Transpose();
+
+        currObjectCB->CopyData(skyBoxRI->ObjCBIndex, objConstants);
+
+        // Next FrameResource need to be updated too.
+        skyBoxRI->NumFramesDirty--;
     }
 }
 
@@ -254,16 +272,15 @@ void NeneApp::UpdateMaterialCBs(const GameTimer& gt)
         Material* mat = e.second.get();
         if (mat->NumFramesDirty > 0)
         {
-            XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
-
             MaterialConstants matConstants;
             matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
             matConstants.FresnelR0 = mat->FresnelR0;
             matConstants.Roughness = mat->Roughness;
-            XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
+            matConstants.MatTransform = mat->MatTransform.Transpose();
             matConstants.TessellationFactor = mat->TessellationFactor;
             matConstants.DisplacementScale = mat->DisplacementScale;
             matConstants.DisplacementBias = mat->DisplacementBias;
+            matConstants.Metalic = mat->Metalic;
 
             currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
 
@@ -275,22 +292,6 @@ void NeneApp::UpdateMaterialCBs(const GameTimer& gt)
 
 void NeneApp::UpdateMainPassCB(const GameTimer& gt)
 {
-    //XMMATRIX view = XMLoadFloat4x4(&mView);
-    //XMMATRIX proj = XMLoadFloat4x4(&mProj);
-
-    //XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-    //XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-    //XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-    //XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
-
-    //XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
-    //XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
-    //XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
-    //XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
-    //XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
-    //XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-    //XMStoreFloat3(&mMainPassCB.EyePosW, m_camera.GetPosition());
-
     mMainPassCB.View = mView.Transpose();
     mMainPassCB.InvView = mView.Invert().Transpose();
     mMainPassCB.Proj = mProj.Transpose();
@@ -693,7 +694,9 @@ void NeneApp::PopulateCommandList()
     //DrawForward();
     m_gBuffer.BindForGeometryPass(m_commandList.Get());
     DrawDeffered();
-    DrawParticles();
+    if (isParticleEnabled)
+        DrawParticles();
+    DrawSkyBox();
     DrawPostProcess();
     m_gBuffer.Unbind(m_commandList.Get());
 
@@ -761,7 +764,7 @@ void NeneApp::BuildDescriptorHeaps()
 // Function to preload some textures, if needed
 void NeneApp::LoadTextures()
 {
-
+    LoadTexture("basic_albedo", "assets/textures/white1x1.dds");
 }
 
 bool NeneApp::LoadTexture(const std::string& filename)
@@ -769,6 +772,11 @@ bool NeneApp::LoadTexture(const std::string& filename)
     std::string texName = filename.substr(filename.find_last_of("/\\") + 1);
     texName = texName.substr(0, texName.find_last_of('.'));
     
+    return LoadTexture(texName, filename);
+}
+
+bool NeneApp::LoadTexture(const std::string& texName, const std::string& filename, D3D12_SRV_DIMENSION textureType)
+{
     std::wstring wFilename = AnsiToWString(filename);
     auto tex = std::make_unique<Texture>();
     tex->Name = texName;
@@ -785,13 +793,13 @@ bool NeneApp::LoadTexture(const std::string& filename)
     // TODO: logging std::cout << "Loaded texture resource: '" << filename << "' (total textures: " << mTextures.size() << ")" << std::endl;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-    hDesc.Offset((INT)mTextures.size() + 4, mCbvSrvDescriptorSize); 
+    hDesc.Offset((INT)mTextures.size() + 4, mCbvSrvDescriptorSize);
 
     // Basic SRV descriptor for 2D texture (d3dx12.h)
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc.Format = tex->Resource->GetDesc().Format;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.ViewDimension = textureType;
     srvDesc.Texture2D.MostDetailedMip = 0;
     srvDesc.Texture2D.MipLevels = tex->Resource->GetDesc().MipLevels;
     srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
@@ -961,6 +969,7 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
             {
                 material->NormalSrvHeapIndex = texIndexBefore;
                 material->HasNormalMap = true;
+                std::cout << "normal map for material " << material->Name << std::endl;
             }
             else
                 material->NormalSrvHeapIndex = 4;
@@ -978,6 +987,7 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
             {
                 material->DisplacementSrvHeapIndex = texIndexBefore;
                 material->HasDisplacementMap = true;
+                std::cout << "DisplacementMap for material " << material->Name << std::endl;
             }
             else
                 material->DisplacementSrvHeapIndex = 4;
@@ -988,9 +998,9 @@ void NeneApp::LoadObjModel(const std::string& filename, Matrix Transform)
         }
 
         // Fresnel and Roughness. TODO: Make it with Assimp
-        material->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-        material->Roughness = 0.25f;
-        material->MatTransform = MathHelper::Identity4x4();
+        //material->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+        //material->Roughness = 0.25f;
+        //material->MatTransform = MathHelper::Identity4x4();
 
         mMaterials[material->Name] = std::move(material);
     }
@@ -1090,17 +1100,24 @@ void NeneApp::BuildRootSignature()
 
     CD3DX12_DESCRIPTOR_RANGE gbufferTable;
     gbufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0); // 3 G-Buffer + 1 Depth
+    CD3DX12_DESCRIPTOR_RANGE skyBoxTable[3];
+    skyBoxTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4); // Prefilter
+    skyBoxTable[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 5); // Irradiance
+    skyBoxTable[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 6); // BRDF
 
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER deffered_slotRootParameter[3];
+    CD3DX12_ROOT_PARAMETER deffered_slotRootParameter[6];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     deffered_slotRootParameter[0].InitAsConstantBufferView(0);
     deffered_slotRootParameter[1].InitAsConstantBufferView(1);
     deffered_slotRootParameter[2].InitAsDescriptorTable(1, &gbufferTable, D3D12_SHADER_VISIBILITY_ALL);
+    deffered_slotRootParameter[3].InitAsDescriptorTable(1, &skyBoxTable[0], D3D12_SHADER_VISIBILITY_PIXEL); // Prefilter
+    deffered_slotRootParameter[4].InitAsDescriptorTable(1, &skyBoxTable[1], D3D12_SHADER_VISIBILITY_PIXEL); // Irradiance
+    deffered_slotRootParameter[5].InitAsDescriptorTable(1, &skyBoxTable[2], D3D12_SHADER_VISIBILITY_PIXEL); // BRDF
 
     // A root signature is an array of root parameters.
-    CD3DX12_ROOT_SIGNATURE_DESC deffered_rootSigDesc(3, deffered_slotRootParameter,
+    CD3DX12_ROOT_SIGNATURE_DESC deffered_rootSigDesc(6, deffered_slotRootParameter,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1133,6 +1150,9 @@ void NeneApp::BuildShadersAndInputLayout()
     mShaders["deferredLightVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLight.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["deferredLightPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLight.hlsl", nullptr, "PS", "ps_5_1");
     mShaders["deferredLightPSDebug"] = d3dUtil::CompileShader(L"Shaders\\DeferredLight.hlsl", nullptr, "PS_debug", "ps_5_1");
+
+    mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -1354,7 +1374,7 @@ void NeneApp::BuildLightGeometries()
 void NeneApp::BuildBoxGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0);
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
@@ -1399,6 +1419,107 @@ void NeneApp::BuildBoxGeometry()
     geo->DrawArgs["box"] = boxSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
+}
+
+void NeneApp::BuildPBRTestObjects()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData box = geoGen.CreateSphere(1.0f, 16, 16);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+    boxSubmesh.StartIndexLocation = 0;
+    boxSubmesh.BaseVertexLocation = 0;
+
+    std::vector<Vertex> vertices(box.Vertices.size());
+
+    for (size_t i = 0; i < box.Vertices.size(); ++i)
+    {
+        vertices[i].Pos = box.Vertices[i].Position;
+        vertices[i].Normal = box.Vertices[i].Normal;
+        vertices[i].TexC = box.Vertices[i].TexC;
+    }
+    boxSubmesh.Bounds = ComputeBounds(vertices);
+
+    std::vector<std::uint16_t> indices = box.GetIndices16();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "PbrSphere";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device.Get(),
+        m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["PbrSphere"] = boxSubmesh;
+    mGeometries[geo->Name] = std::move(geo);
+
+    auto sphereGeo = mGeometries["PbrSphere"].get();
+
+    float spacing = 3.f;
+    for (int i = 0; i < 11; i++)
+    {
+        for (int j = 0; j < 11; j++)
+        {
+            auto pbrRitem = std::make_shared<RenderItem>();
+            pbrRitem->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
+            pbrRitem->Geo = sphereGeo;
+            pbrRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+            pbrRitem->IndexCount = pbrRitem->Geo->DrawArgs["PbrSphere"].IndexCount;
+            pbrRitem->StartIndexLocation = pbrRitem->Geo->DrawArgs["PbrSphere"].StartIndexLocation;
+            pbrRitem->BaseVertexLocation = pbrRitem->Geo->DrawArgs["PbrSphere"].BaseVertexLocation;
+            pbrRitem->Name = "pbrSphere_" + std::to_string(i) + "_" + std::to_string(j);;
+            pbrRitem->World = Matrix::CreateTranslation(i * spacing - 16.5f, 0.f, j * spacing - 16.5f);
+            std::string matName = "sphere_" + std::to_string(i) + "_" + std::to_string(j);
+            pbrRitem->Mat = mMaterials[matName].get();
+            mAllRitems.push_back(std::move(pbrRitem));
+        }
+    }
+}
+
+void NeneApp::BuildSkyBox()
+{
+    if (mMaterials.find("skyBoxPrefilter") == mMaterials.end()) {
+        bool bad = false;
+        skyBoxHandles[skyBoxEnums::prefilter] = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+            mTextures.size() + 4, mCbvSrvDescriptorSize);
+        bad |= LoadTexture("skyBoxPrefilter", "assets/textures/CubeMaps/skyPrefilter.dds", D3D12_SRV_DIMENSION_TEXTURECUBE);
+        skyBoxHandles[skyBoxEnums::brdf] = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+            mTextures.size() + 4, mCbvSrvDescriptorSize);
+        bad |= LoadTexture("skyBoxBrdf", "assets/textures/CubeMaps/skyBrdf.dds", D3D12_SRV_DIMENSION_TEXTURECUBE);
+        skyBoxHandles[skyBoxEnums::irradiance] = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+            mTextures.size() + 4, mCbvSrvDescriptorSize);
+        bad |= LoadTexture("skyBoxIrradiance", "assets/textures/CubeMaps/skyIrradiance.dds");
+        if (!bad) {
+            std::cout << "ERROR: Cant Load CubeMap textures for SkyBox" << std::endl;
+            return;
+        }
+    }
+    skyBoxRI = std::make_shared<RenderItem>();
+    skyBoxRI->Name = "Box";
+    skyBoxRI->ObjCBIndex = (UINT)mAllRitems.size();
+    skyBoxRI->World = Matrix::CreateScale(5000.0f);
+    skyBoxRI->Geo = mGeometries["boxGeo"].get();
+    skyBoxRI->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    skyBoxRI->IndexCount = skyBoxRI->Geo->DrawArgs["box"].IndexCount;
+    skyBoxRI->StartIndexLocation = skyBoxRI->Geo->DrawArgs["box"].StartIndexLocation;
+    skyBoxRI->BaseVertexLocation = skyBoxRI->Geo->DrawArgs["box"].BaseVertexLocation;
+    skyBoxRI->NumFramesDirty = gNumFrameResources;
 }
 
 void NeneApp::BuildManyBoxes(UINT count)
@@ -1485,8 +1606,8 @@ void NeneApp::BuildManyBoxes(UINT count)
         mat->DiffuseSrvHeapIndex = (int)mTextures.size();
         LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
         mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-        mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-        mat->Roughness = 0.2f;
+        //mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+        //mat->Roughness = 0.2f;
         mMaterials["woodCrate"] = std::move(mat);
     }
 
@@ -1772,7 +1893,7 @@ void NeneApp::BuildPSOs()
     */
 #pragma endregion
 
-    // PSO для Geometry Pass
+    // PSO for Geometry Pass
     D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredGeoPsoDesc = {};
     deferredGeoPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
     deferredGeoPsoDesc.pRootSignature = mRootSignature.Get();
@@ -1786,13 +1907,13 @@ void NeneApp::BuildPSOs()
     deferredGeoPsoDesc.NumRenderTargets = 3;
     deferredGeoPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;      // Position
     deferredGeoPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;  // Normal
-    deferredGeoPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32_FLOAT;           // Roughness
+    deferredGeoPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;  // Roughness
     deferredGeoPsoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     deferredGeoPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
     deferredGeoPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&deferredGeoPsoDesc, IID_PPV_ARGS(&mPSOs["deferredGeo"])));
 
-    // PSO для Lighting Pass
+    // PSO for Lighting Pass
     D3D12_INPUT_ELEMENT_DESC lightInputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1860,6 +1981,43 @@ void NeneApp::BuildPSOs()
                         mShaders["deferredLightPSDebug"]->GetBufferSize() };
 
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
+
+    // PSO for sky.
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = {};
+    skyPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    skyPsoDesc.pRootSignature = mRootSignature.Get();
+    skyPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    skyPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    skyPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    skyPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    skyPsoDesc.SampleMask = UINT_MAX;
+    skyPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    skyPsoDesc.NumRenderTargets = 1;
+    skyPsoDesc.RTVFormats[0] = m_backBufferFormat;
+    skyPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+    skyPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+    skyPsoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+
+    // The camera is inside the sky sphere, so just turn off culling.
+    skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    // Make sure the depth function is LESS_EQUAL and not just LESS.  
+    // Otherwise, the normalized depth values at z = 1 (NDC) will 
+    // fail the depth test if the depth buffer was cleared to 1.
+    skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    skyPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    skyPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
+        mShaders["skyVS"]->GetBufferSize()
+    };
+    skyPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
+        mShaders["skyPS"]->GetBufferSize()
+    };
+    skyPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
 }
 
 void NeneApp::BuildTextureSRVs()
@@ -1912,7 +2070,7 @@ void NeneApp::BuildFrameResources()
     for (int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(m_device.Get(),
-            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size(), (UINT)mLightRitems.size() + MAX_DYNAMIC_LIGHTS));
+            1, (UINT)mAllRitems.size() + 1, (UINT)mMaterials.size(), (UINT)mLightRitems.size() + MAX_DYNAMIC_LIGHTS));
     }
 }
 
@@ -1936,8 +2094,6 @@ void NeneApp::BuildMaterials()
     mat->DiffuseSrvHeapIndex = (int)mTextures.size() + 4;;
     LoadTexture("assets/textures/luna_textures/WoodCrate01.dds");
     mat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    mat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-    mat->Roughness = 0.2f;
     mMaterials["woodCrate"] = std::move(mat);
 
 
@@ -1969,6 +2125,23 @@ void NeneApp::BuildMaterials()
     mat->HasDisplacementMap = true;
     LoadTexture("assets/textures/for_tesselation/mountain_disp.dds");
     mMaterials["mountain"] = std::move(mat);
+
+    for (int i = 0; i < 11; i++)
+    {
+        for (int j = 0; j < 11; j++)
+        {
+            auto sphere = std::make_unique<Material>();
+            sphere->Name = "sphere_" + std::to_string(i) + "_" + std::to_string(j);
+            sphere->MatCBIndex = (int)mMaterials.size();
+            sphere->DiffuseSrvHeapIndex = 4;
+            sphere->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+            sphere->FresnelR0 = XMFLOAT3(0.04f, 0.04f, 0.04f);
+            sphere->Roughness = j / 10.f;
+            sphere->Metalic = i / 10.f;
+
+            mMaterials[sphere->Name] = std::move(sphere);
+        }
+    }
 }
 
 // Helper function to create a rotation matrix aligning (0,0,1) to the given direction
@@ -1989,7 +2162,7 @@ XMMATRIX CreateRotationMatrixFromDirection(const XMFLOAT3& direction)
 
 void NeneApp::BuildRenderItems()
 {
-    auto boxRitem = std::make_shared<RenderItem>();
+    /*auto boxRitem = std::make_shared<RenderItem>();
     boxRitem->Name = "Box";
     boxRitem->ObjCBIndex = (UINT)mAllRitems.size() + mLightRitems.size();
     boxRitem->Mat = mMaterials["woodCrate"].get();
@@ -1999,7 +2172,7 @@ void NeneApp::BuildRenderItems()
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
     boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
-    mAllRitems.push_back(std::move(boxRitem));
+    mAllRitems.push_back(std::move(boxRitem));*/
 
     /*
     auto sphereRitem = std::make_shared<RenderItem>();
@@ -2049,51 +2222,51 @@ void NeneApp::BuildRenderItems()
     dirRI->NumFramesDirtyLight = gNumFrameResources;
     dirRI->lightType = LightTypes::DIRECTIONAL;
     dirRI->light.Direction = { -1.0f, -1.0f, 1.0f };
-    dirRI->light.Strength = { 0.1f, 0.1f, 0.1f };
+    dirRI->light.Strength = { 0.5f, 0.5f, 0.5f };
     mLightRitems.push_back(dirRI);
 
-    // Point light RI (scale to falloff, pos static)
-    auto pointRI = std::make_shared<LightItem>();
-    pointRI->Name = "Point Light";
-    pointRI->lightType = LightTypes::POINTLIGHT;
-    pointRI->light.Position = { 0.0f, 1.0f, 0.0f };
-    pointRI->light.FalloffStart = 1.0f;
-    pointRI->light.FalloffEnd = 5.0f;
-    pointRI->light.Strength = { 1.0f, 0.0f, 0.0f };
-    pointRI->LightCBIndex = (UINT)mLightRitems.size();
-    pointRI->Geo = sphereGeo;
-    pointRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    pointRI->IndexCount = sphereGeo->DrawArgs["lightSphere"].IndexCount;
-    pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightSphere"].StartIndexLocation;
-    pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightSphere"].BaseVertexLocation;
-    pointRI->PSOType = "DeferredLightDepthOff";
-    pointRI->Visible = true;
-    pointRI->NumFramesDirtyLight = gNumFrameResources;
-    mLightRitems.push_back(pointRI);
+    //// Point light RI (scale to falloff, pos static)
+    //auto pointRI = std::make_shared<LightItem>();
+    //pointRI->Name = "Point Light";
+    //pointRI->lightType = LightTypes::POINTLIGHT;
+    //pointRI->light.Position = { 0.0f, 1.0f, 0.0f };
+    //pointRI->light.FalloffStart = 1.0f;
+    //pointRI->light.FalloffEnd = 5.0f;
+    //pointRI->light.Strength = { 1.0f, 0.0f, 0.0f };
+    //pointRI->LightCBIndex = (UINT)mLightRitems.size();
+    //pointRI->Geo = sphereGeo;
+    //pointRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    //pointRI->IndexCount = sphereGeo->DrawArgs["lightSphere"].IndexCount;
+    //pointRI->StartIndexLocation = sphereGeo->DrawArgs["lightSphere"].StartIndexLocation;
+    //pointRI->BaseVertexLocation = sphereGeo->DrawArgs["lightSphere"].BaseVertexLocation;
+    //pointRI->PSOType = "DeferredLightDepthOff";
+    //pointRI->Visible = true;
+    //pointRI->NumFramesDirtyLight = gNumFrameResources;
+    //mLightRitems.push_back(pointRI);
 
-    // Spot light RI (scale/rotate to match dir/falloff)
-    auto spotRI = std::make_shared<LightItem>();
-    Matrix spotR = Matrix::CreateRotationX(XM_PI);  // Point down (-Y)
-    Matrix spotS = Matrix::CreateScale(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
-    Matrix spotT = Matrix::CreateTranslation(10.0f, 10.0f, -5.0f);
-    spotRI->Name = "SpotLight";
-    spotRI->lightType = LightTypes::SPOTLIGHT;
-    spotRI->light.Position = { 10.0f, 10.0f, -5.0f };
-    spotRI->light.FalloffStart = 1.0f;
-    spotRI->light.FalloffEnd = 20.0f;
-    spotRI->light.Direction = { 0.0f, -1.0f, 0.0f };
-    spotRI->light.SpotPower = 10.0f;
-    spotRI->light.Strength = { 1.0f, 1.0f, 1.0f };
-    spotRI->LightCBIndex = (UINT)mLightRitems.size();
-    spotRI->Geo = cylGeo;
-    spotRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    spotRI->IndexCount = cylGeo->DrawArgs["lightCylinder"].IndexCount;
-    spotRI->StartIndexLocation = cylGeo->DrawArgs["lightCylinder"].StartIndexLocation;
-    spotRI->BaseVertexLocation = cylGeo->DrawArgs["lightCylinder"].BaseVertexLocation;
-    spotRI->PSOType = "DeferredLightDepthOff";
-    spotRI->Visible = true;
-    spotRI->NumFramesDirtyLight = gNumFrameResources;
-    mLightRitems.push_back(spotRI);
+    //// Spot light RI (scale/rotate to match dir/falloff)
+    //auto spotRI = std::make_shared<LightItem>();
+    //Matrix spotR = Matrix::CreateRotationX(XM_PI);  // Point down (-Y)
+    //Matrix spotS = Matrix::CreateScale(5.0f, 25.0f, 5.0f);  // Radius 5, height 25
+    //Matrix spotT = Matrix::CreateTranslation(10.0f, 10.0f, -5.0f);
+    //spotRI->Name = "SpotLight";
+    //spotRI->lightType = LightTypes::SPOTLIGHT;
+    //spotRI->light.Position = { 10.0f, 10.0f, -5.0f };
+    //spotRI->light.FalloffStart = 1.0f;
+    //spotRI->light.FalloffEnd = 20.0f;
+    //spotRI->light.Direction = { 0.0f, -1.0f, 0.0f };
+    //spotRI->light.SpotPower = 10.0f;
+    //spotRI->light.Strength = { 1.0f, 1.0f, 1.0f };
+    //spotRI->LightCBIndex = (UINT)mLightRitems.size();
+    //spotRI->Geo = cylGeo;
+    //spotRI->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    //spotRI->IndexCount = cylGeo->DrawArgs["lightCylinder"].IndexCount;
+    //spotRI->StartIndexLocation = cylGeo->DrawArgs["lightCylinder"].StartIndexLocation;
+    //spotRI->BaseVertexLocation = cylGeo->DrawArgs["lightCylinder"].BaseVertexLocation;
+    //spotRI->PSOType = "DeferredLightDepthOff";
+    //spotRI->Visible = true;
+    //spotRI->NumFramesDirtyLight = gNumFrameResources;
+    //mLightRitems.push_back(spotRI);
     
     std::cout << "Total RenderItems after BuildRenderItems: " << mAllRitems.size() << std::endl;
     std::cout << "Light render items size: " << mLightRitems.size() << std::endl;
@@ -2261,7 +2434,8 @@ void NeneApp::BuildParticleResources()
     for (UINT i = 0; i < mParticleCount; i++)
     {
         Particle p{};
-        p.pos = XMFLOAT3(MathHelper::RandF(-50.5f, 50.5f), 40.5f, MathHelper::RandF(-50.5f, 50.5f));
+        p.pos = XMFLOAT3(MathHelper::RandF(-2.5f, 2.5f), 40.5f, MathHelper::RandF(-2.5f, 2.5f));
+        p.startPos = p.pos;
         p.vel = XMFLOAT3(MathHelper::RandF(0.5f, 0.5f), MathHelper::RandF(-5.5f, 5.5f), MathHelper::RandF(0.5f, 0.5f));
         p.life = p.lifetime = MathHelper::RandF(2.0f, 5.0f);
         p.size = MathHelper::RandF(0.15f, 0.35f);
@@ -2482,10 +2656,6 @@ void NeneApp::DrawParticles()
     m_commandList->SetGraphicsRootDescriptorTable(1, srv_OutRes);
     /*m_commandList->OMSetRenderTargets(1, &mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart(), TRUE, &m_gBuffer.GetDSV());*/
     m_commandList->DrawInstanced(mParticleCount, 1, 0, 0);
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-        m_gBuffer.GetDepthResource(),
-        D3D12_RESOURCE_STATE_DEPTH_READ,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
 #if defined(DEBUG) || defined(_DEBUG)
     PIXEndEvent(m_commandList.Get());
@@ -2494,6 +2664,10 @@ void NeneApp::DrawParticles()
 
 void NeneApp::DrawPostProcess()
 {
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_gBuffer.GetDepthResource(),
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
         mPostProcessRenderTarget.Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -2517,6 +2691,33 @@ void NeneApp::DrawPostProcess()
     m_commandList->IASetIndexBuffer(nullptr);
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_commandList->DrawInstanced(3, 1, 0, 0);
+}
+
+void NeneApp::DrawSkyBox()
+{
+    m_commandList->SetPipelineState(mPSOs["sky"].Get());
+    m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
+    auto passCB = mCurrFrameResource->PassCB->Resource();
+    m_commandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    auto ri = skyBoxRI;
+
+    m_commandList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+    m_commandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+    m_commandList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+    D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+
+    m_commandList->SetGraphicsRootDescriptorTable(0, skyBoxHandles[skyBoxEnums::prefilter]);
+    m_commandList->SetGraphicsRootConstantBufferView(3, objCBAddress);
+
+    m_commandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 }
 
 void NeneApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
@@ -2583,7 +2784,9 @@ void NeneApp::DrawForward()
 
 void NeneApp::DrawDeffered()
 {
-
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXBeginEvent(m_commandList.Get(), PIX_COLOR(128, 128, 128), L"Deffered Draw: Geometry");
+#endif
     // Geometry Pass
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -2596,7 +2799,13 @@ void NeneApp::DrawDeffered()
 
     m_commandList->SetGraphicsRootConstantBufferView(4, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
     DrawRenderItems(m_commandList.Get(), mOpaqueRitems);
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXEndEvent(m_commandList.Get());
+#endif
 
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXBeginEvent(m_commandList.Get(), PIX_COLOR(128, 128, 128), L"Deffered Draw: LightPass");
+#endif
     // Lighting Pass
     m_gBuffer.BindForLightingPass(m_commandList.Get());
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
@@ -2626,6 +2835,12 @@ void NeneApp::DrawDeffered()
         D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + lightItem->LightCBIndex * lightCBByteSize;
         m_commandList->SetGraphicsRootConstantBufferView(1, lightCBAddress);
 
+        if (isSkyBoxEnabled && lightItem->lightType == AMBIENT) {
+            m_commandList->SetGraphicsRootDescriptorTable(3, skyBoxHandles[skyBoxEnums::prefilter]);
+            m_commandList->SetGraphicsRootDescriptorTable(4, skyBoxHandles[skyBoxEnums::irradiance]);
+            m_commandList->SetGraphicsRootDescriptorTable(5, skyBoxHandles[skyBoxEnums::brdf]);
+        }
+
         // Set PSO by type
         m_commandList->SetPipelineState(mPSOs[lightItem->PSOType].Get());
 
@@ -2633,6 +2848,13 @@ void NeneApp::DrawDeffered()
         m_commandList->IASetIndexBuffer(&lightItem->Geo->IndexBufferView());
         m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
     }
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXEndEvent(m_commandList.Get());
+#endif
+
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXBeginEvent(m_commandList.Get(), PIX_COLOR(128, 128, 128), L"Deffered Draw: Debug Light Meshes");
+#endif
     // Debug rendering
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
         m_gBuffer.GetDepthResource(),
@@ -2654,6 +2876,9 @@ void NeneApp::DrawDeffered()
             m_commandList->DrawIndexedInstanced(lightItem->IndexCount, 1, lightItem->StartIndexLocation, lightItem->BaseVertexLocation, 0);
         }
     }
+#if defined(DEBUG) || defined(_DEBUG)
+    PIXEndEvent(m_commandList.Get());
+#endif
 }
 
 void NeneApp::DrawUI()
@@ -2836,8 +3061,9 @@ void NeneApp::DrawUI()
             bool matChanged = false;
 
             matChanged |= ImGui::ColorEdit4("Diffuse Albedo", &mat->DiffuseAlbedo.x);
-            matChanged |= ImGui::SliderFloat("Roughness", &mat->Roughness, 0.0f, 1.0f, "%.3f");
-            matChanged |= ImGui::SliderFloat3("Fresnel R0", &mat->FresnelR0.x, 0.0f, 1.0f, "%.3f");
+            matChanged |= ImGui::SliderFloat("Roughness", &mat->Roughness, 0.0f, 1.0f, "%.1f");
+            matChanged |= ImGui::SliderFloat3("Fresnel R0", &mat->FresnelR0.x, 0.0f, 1.0f, "%.1f");
+            matChanged |= ImGui::SliderFloat("Metalic", &mat->Metalic, 0.0f, 1.0f, "%.1f");
 
             if (mat->HasDisplacementMap)
             {
@@ -2861,6 +3087,11 @@ void NeneApp::DrawUI()
     else
     {
         ImGui::Text("No Render Item selected");
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Particles Control")) {
+        ImGui::Checkbox("Enable Particles", &isParticleEnabled);
     }
     ImGui::End();
 

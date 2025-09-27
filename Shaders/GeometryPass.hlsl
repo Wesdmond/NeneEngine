@@ -1,7 +1,8 @@
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
-Texture2D gDiffuseMap               : register(t0);
+Texture2D gAlbedoMap               : register(t0);
+Texture2D gNormalMap                : register(t1);
 
 SamplerState gsamPointWrap          : register(s0);
 SamplerState gsamPointClamp         : register(s1);
@@ -15,9 +16,9 @@ cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
+    float4x4 gInvertTransposeWorld;
 };
 
-// Constant data that varies per material.
 cbuffer cbPass      : register(b1)
 {
     float4x4 gView;
@@ -37,6 +38,18 @@ cbuffer cbPass      : register(b1)
     float4  gAmbientLight;
 };
 
+cbuffer cbMaterial : register(b2)
+{
+    float4 gDiffuseAlbedo;
+    float3 gFresnelR0;
+    float gRoughness;
+    float4x4 gMatTransform;
+    float g_TessellationFactor;
+    float g_DisplacementScale;
+    float g_DisplacementBias;
+    float gMetalic;
+};
+
 struct VertexIn
 {
     float3 PosL     : POSITION;
@@ -48,7 +61,8 @@ struct VertexIn
 struct VertexOut
 {
     float4 PosH     : SV_POSITION;
-    float3 NormalW  : NORMAL;
+    float3 NormalL  : NORMAL;
+    float3 TangentL  : TANGENT;
     float2 TexC     : TEXCOORD;
 };
 
@@ -57,7 +71,8 @@ VertexOut VS(VertexIn vin)
     VertexOut vout;
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosH = mul(posW, gViewProj);
-    vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
+    vout.NormalL = vin.NormalL;
+    vout.TangentL = vin.TangentL;
     vout.TexC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform).xy;
     return vout;
 }
@@ -66,16 +81,32 @@ struct PSOutput
 {
     float4 Albedo   : SV_TARGET0;
     float4 Normal   : SV_TARGET1;
-    float Roughness : SV_TARGET2;
+    float4 Roughness : SV_TARGET2;
 };
 
 PSOutput PS(VertexOut pin)
 {
     PSOutput output;
-    if (gDiffuseMap.Sample(gsamLinearWrap, pin.TexC).a == 0)
+    float4 diffuse = gAlbedoMap.Sample(gsamLinearWrap, pin.TexC);
+    if (diffuse.a == 0)
         discard;
-    output.Albedo = gDiffuseMap.Sample(gsamLinearWrap, pin.TexC);
-    output.Normal = float4(normalize(pin.NormalW), 0.0);
-    output.Roughness = 0.8f;
+    output.Albedo = gDiffuseAlbedo * diffuse;
+    
+    float3 normalMap = gNormalMap.Sample(gsamLinearWrap, pin.TexC).rgb;
+    float3 normalW = normalize(mul(pin.NormalL, (float3x3) gInvertTransposeWorld));
+    if (length(normalMap) != 0)
+    {
+        float3 binormal = cross(pin.NormalL, pin.TangentL);
+        binormal = normalize(mul(binormal, (float3x3) gInvertTransposeWorld));
+        float3 tangentW = normalize(mul(pin.TangentL, (float3x3) gInvertTransposeWorld));
+        float3x3 TBN = float3x3(tangentW, binormal, normalW);
+        
+        normalMap = normalMap * 2.0f - 1.0f;
+        normalMap = mul(normalMap, TBN);
+        output.Normal = float4(normalize(pin.NormalL), gMetalic);
+    }
+    else
+        output.Normal = float4(normalize(normalW), gMetalic);
+    output.Roughness = float4(gFresnelR0.rgb, gRoughness);
     return output;
 }

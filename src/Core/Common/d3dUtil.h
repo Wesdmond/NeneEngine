@@ -282,18 +282,17 @@ struct Light
 
 struct MaterialConstants
 {
-	DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
+	DirectX::SimpleMath::Vector4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	DirectX::SimpleMath::Vector3 FresnelR0 = { 0.04f, 0.04f, 0.04f };
 	float Roughness = 0.25f;
 
 	// Used in texture mapping.
-	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	DirectX::SimpleMath::Matrix MatTransform = MathHelper::Identity4x4();
 
 	float TessellationFactor = 1.0f;
 	float DisplacementScale = 0.05f;
 	float DisplacementBias = 0.0f;
-	float padding;
-
+	float Metalic = 0.1f;
 };
 
 // Simple struct to represent a material for our demos.  A production 3D engine
@@ -326,13 +325,14 @@ struct Material
 	bool HasDisplacementMap = false;
 
 	// Material constant buffer data used for shading.
-	DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
+	DirectX::SimpleMath::Vector4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	DirectX::SimpleMath::Vector3 FresnelR0 = { 0.04f, 0.04f, 0.04f };
 	float Roughness = .25f;
-	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	DirectX::SimpleMath::Matrix MatTransform = MathHelper::Identity4x4();
 	float TessellationFactor = 1.0f;
 	float DisplacementScale = 0.1f;
 	float DisplacementBias = 0.0f;
+	float Metalic = 0.1f;
 };
 
 struct Texture

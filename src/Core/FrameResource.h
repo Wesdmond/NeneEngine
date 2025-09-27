@@ -8,6 +8,7 @@ struct ObjectConstants
 {
     DirectX::SimpleMath::Matrix World = DirectX::SimpleMath::Matrix::Identity;
     DirectX::SimpleMath::Matrix TexTransform = DirectX::SimpleMath::Matrix::Identity;
+    DirectX::SimpleMath::Matrix InvertTransposeWorld = DirectX::SimpleMath::Matrix::Identity;
 };
 
 struct PassConstants

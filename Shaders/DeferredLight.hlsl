@@ -5,6 +5,7 @@
 
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
+#include "pbr.hlsl"
 
 // Constant data that varies per material.
 cbuffer cbPass              : register(b0)
@@ -35,6 +36,7 @@ cbuffer LightBuf            : register(b1)
 }
 
 SamplerState Sampler        : register(s0);
+SamplerState SamLinearClamp : register(s3);
 
 struct VertexIn
 {
@@ -77,11 +79,16 @@ Texture2D NormalMap         : register(t1);
 Texture2D RoughnessMap      : register(t2);
 Texture2D DepthMap          : register(t3);
 
+// SkyBox
+TextureCube gSkyDiffuse     : register(t4);
+TextureCube gSkyIrradiance  : register(t5);
+Texture2D   gSkyBrdf        : register(t6);
+
 struct GBufferData
 {
     float4 Albedo;
-    float3 Normal;
-    float3 Roughness;
+    float4 Normal;
+    float4 Roughness;
     float3 Depth;
 };
 
@@ -106,26 +113,78 @@ float4 PS(VertexOut pin)    : SV_TARGET
     if (buf.Albedo.a == 0)
         discard;
     float3 posW = ComputeWorldlPos(texC, buf.Depth.r);
-
     float3 toEye = normalize(gEyePosW - posW);
+    
     const float shininess = 1.0f - buf.Roughness.r;
-    Material mat = { buf.Albedo, float3(0.01f, 0.01f, 0.01), shininess };
-    float3 shadowFactor = 1.0f;
+    Material mat = { buf.Albedo, buf.Roughness.rgb, shininess };
 
     float3 lighting = 0.0f;
     switch (gLightType)
     {
         case AMBIENT:
-            lighting += LightData.Strength.rgb * buf.Albedo.rgb;
+        {
+            // PBR IBL
+            float3 p = posW;
+            float3 Wo = toEye;
+            float metallic = buf.Normal.a;
+            float roughness = buf.Roughness.a;
+            float3 normal = buf.Normal.rgb;
+            float NdotV = max(dot(normal, Wo), 0.0);
+        
+            float3 F0 = mat.FresnelR0;
+            F0 = lerp(F0, mat.DiffuseAlbedo.rgb, metallic.rrr);
+            float3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
+    
+            float3 kS = F;
+            float3 kD = 1.0 - kS;
+            kD *= (1.0 - metallic);
+    
+            float3 irradiance = gSkyIrradiance.Sample(Sampler, normal).rgb;
+            float3 diffuse = irradiance * mat.DiffuseAlbedo.rgb;
+    
+            uint width, height, NumMips;
+            gSkyDiffuse.GetDimensions(0, width, height, NumMips);
+    
+            float3 R = reflect(-Wo, normal);
+            float3 prefilteredColor = gSkyDiffuse.SampleLevel(SamLinearClamp, R, roughness * NumMips).rgb;
+            float2 brdf = gSkyBrdf.Sample(SamLinearClamp, float2(NdotV, roughness)).rg;
+            float3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+    
+            float ao = 1.0f;
+            lighting += (kD * diffuse + specular) * ao;
+            //lighting += LightData.Strength.rgb * buf.Albedo.rgb;
             break;
+        }
         case DIRECTIONAL:
-            lighting += ComputeDirectionalLight(LightData, mat, buf.Normal, toEye);
+        {
+            // PBR realization
+            float3 p = posW;
+            float3 Wi = normalize(-LightData.Direction);
+            float3 Wo = toEye;
+            float3 H = (Wi + Wo) / length(Wi + Wo);
+            float metallic = buf.Normal.a;
+            float roughness = buf.Roughness.a;
+            float3 normal = buf.Normal.rgb;
+        
+            float3 F0 = mat.FresnelR0;
+            F0 = lerp(F0, mat.DiffuseAlbedo.rgb, metallic.rrr);
+            //float3 F = FresnelSchlick(dot(H, Wo), F0);
+            float3 F = FresnelSchlick(max(dot(H, Wo), 0.0), F0);
+            float kS = F;           // reflection/specular fraction
+            float kD = 1.0 - kS;    // refraction/diffuse fraction
+            float D = DistributionGGX(normal, H, roughness);
+            float G = GeometrySmith(normal, Wo, Wi, roughness);
+            float3 DFG = D * F * G;
+            float3 Fcook = DFG / (4 * dot(normal, toEye) * dot(normal, Wi));
+            float3 Fr = kD * mat.DiffuseAlbedo.rgb / PI + Fcook;
+            lighting += Fr * LightData.Strength.r * dot(normal, Wi);
             break;
+        }
         case POINTLIGHT:
-            lighting += ComputePointLight(LightData, mat, posW, buf.Normal, toEye);
+            lighting += ComputePointLight(LightData, mat, posW, buf.Normal.rgb, toEye);
             break;
         case SPOTLIGHT:
-            lighting += ComputeSpotLight(LightData, mat, posW, buf.Normal, toEye);
+            lighting += ComputeSpotLight(LightData, mat, posW, buf.Normal.rgb, toEye);
             break;
             
     }

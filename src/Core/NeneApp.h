@@ -107,6 +107,7 @@ struct LightItem {
 
 struct Particle {
     SimpleMath::Vector3 pos;
+    SimpleMath::Vector3 startPos;
     SimpleMath::Vector3 vel;
     float life;
     float lifetime;
@@ -140,26 +141,40 @@ private:
     void SetDelegates();
     void InitCamera();
 
-    void LoadTextures();
-    bool LoadTexture(const std::string& filename);
-    void LoadObjModel(const std::string& filename, SimpleMath::Matrix Transform);
     void BuildRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
+    void BuildPSOs();
+    void BuildTextureSRVs();
+    void BuildFrameResources();
+    void BuildMaterials();
+    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems);
+    void DrawForward();
+    void DrawDeffered();
+    void DrawUI();
+    void DrawParticles();
+    void DrawPostProcess();
+    void DrawSkyBox();
 
-#pragma region geometry
+    void LoadTextures();
+    bool LoadTexture(const std::string& filename);
+    bool LoadTexture(const std::string& texName, const std::string& filename, D3D12_SRV_DIMENSION textureType = D3D12_SRV_DIMENSION_TEXTURE2D);
+    void LoadObjModel(const std::string& filename, SimpleMath::Matrix Transform);
+
+    // geometry
     void BuildBoxLightGeometry();
     void BuildSphereLightGeometry();
     void BuildQuadLightGeometry();
     void BuildCylinderLightGeometry();
     void BuildLightGeometries();
     void BuildBoxGeometry();
+    void BuildPBRTestObjects();
+    void BuildSkyBox();
     void BuildManyBoxes(UINT count = 1000);
     void BuildDisplacementTestGeometry();
     void ShootLight(SimpleMath::Vector3 position, SimpleMath::Vector3 size, SimpleMath::Vector3 velocity, SimpleMath::Color color, float linearDamping);
     void BuildPlane(float width, float height, UINT x, UINT y, const std::string& meshName, const std::string& matName, const SimpleMath::Matrix& transform, D3D12_PRIMITIVE_TOPOLOGY type);
     void BuildRenderItems();
-#pragma endregion
 
     // post-process
     void BuildPostProcessHeaps();
@@ -173,17 +188,6 @@ private:
     void BuildParticleCS_RS();
     void BuildParticleGfx_RS();
     void BuildParticlePSO();
-
-    void BuildPSOs();
-	void BuildTextureSRVs();
-    void BuildFrameResources();
-    void BuildMaterials();
-    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems);
-    void DrawForward();
-    void DrawDeffered();
-    void DrawUI();
-    void DrawParticles();
-    void DrawPostProcess();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -234,6 +238,15 @@ private:
     std::vector<std::shared_ptr<RenderItem>> mAllRitems;
 
 	std::unordered_map<std::string, std::shared_ptr<RenderItem>> mModelRenderItems;
+    bool isSkyBoxEnabled = true;
+    std::shared_ptr<RenderItem> skyBoxRI;
+
+    enum skyBoxEnums {
+        prefilter   = 0,
+        brdf        = 1,
+        irradiance  = 2
+    };
+    CD3DX12_GPU_DESCRIPTOR_HANDLE skyBoxHandles[3];
 	
     // Render items divided by PSO.
     std::vector<std::shared_ptr<RenderItem>> mOpaqueRitems;
@@ -255,7 +268,7 @@ private:
 #pragma region Frustrum Culling
     std::vector<std::shared_ptr<RenderItem>> mVisibleRitems;
     float mLODDistanceThreshold = 30.0f;
-    bool mUseFrustumCulling = true;
+    bool mUseFrustumCulling = false;
     int mSelectedRItemIndex = 0; // Selected RenderItem index in ImGui
 
     // Octree
@@ -301,7 +314,8 @@ private:
     ComPtr<ID3D12RootSignature> mParticleGfx_RS; // PS RS
     ComPtr<ID3D12PipelineState> mParticleCS_PSO; // CS PSO
     ComPtr<ID3D12PipelineState> mParticleGfx_PSO; // PS PSO
-    UINT mParticleCount = 100000;
+    UINT mParticleCount = 10000;
+    bool isParticleEnabled = false;
     SimpleMath::Vector3 mParticleForce = SimpleMath::Vector3(0.0f, 2.0f, 0.0f); // For ImGui control, replacing origin
 #pragma endregion
 

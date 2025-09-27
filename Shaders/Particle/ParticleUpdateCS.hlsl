@@ -1,6 +1,7 @@
 struct Particle
 {
     float3 pos;
+    float3 beginPos;
     float3 vel;
     float life;
     float lifetime;
@@ -90,7 +91,7 @@ void CS(uint3 id : SV_DispatchThreadID)
             p.alive = 0;
             p.life = p.lifetime;
             p.vel = float3(0, -1.5, 0);
-            p.pos.y = 40.5;
+            p.pos = p.beginPos;
             //p.pos = float3(Random(-50, 50), 40.5, Random(-50, 50));
             p.alive = 1;
         }

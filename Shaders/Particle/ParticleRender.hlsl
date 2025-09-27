@@ -1,6 +1,7 @@
 struct Particle
 {
     float3 pos;
+    float3 beginPos;
     float3 vel;
     float life;
     float lifetime;
