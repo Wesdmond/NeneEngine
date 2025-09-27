@@ -1501,10 +1501,10 @@ void NeneApp::BuildSkyBox()
         bad |= LoadTexture("skyBoxPrefilter", "assets/textures/CubeMaps/skyPrefilter.dds", D3D12_SRV_DIMENSION_TEXTURECUBE);
         skyBoxHandles[skyBoxEnums::brdf] = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
             mTextures.size() + 4, mCbvSrvDescriptorSize);
-        bad |= LoadTexture("skyBoxBrdf", "assets/textures/CubeMaps/skyBrdf.dds", D3D12_SRV_DIMENSION_TEXTURECUBE);
+        bad |= LoadTexture("skyBoxBrdf", "assets/textures/CubeMaps/skyBrdf.dds");
         skyBoxHandles[skyBoxEnums::irradiance] = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
             mTextures.size() + 4, mCbvSrvDescriptorSize);
-        bad |= LoadTexture("skyBoxIrradiance", "assets/textures/CubeMaps/skyIrradiance.dds");
+        bad |= LoadTexture("skyBoxIrradiance", "assets/textures/CubeMaps/skyIrradiance.dds", D3D12_SRV_DIMENSION_TEXTURECUBE);
         if (!bad) {
             std::cout << "ERROR: Cant Load CubeMap textures for SkyBox" << std::endl;
             return;
