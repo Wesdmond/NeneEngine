@@ -151,7 +151,7 @@ float4 PS(VertexOut pin)    : SV_TARGET
             float3 specular = prefilteredColor * (F * brdf.x + brdf.y);
     
             float ao = 1.0f;
-            lighting += (kD * diffuse + specular) * ao * float(0.3);
+            lighting += (kD * diffuse + specular) * ao * LightData.Strength.r;
             break;
         }
         case DIRECTIONAL:

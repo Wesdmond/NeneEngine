@@ -694,9 +694,10 @@ void NeneApp::PopulateCommandList()
     //DrawForward();
     m_gBuffer.BindForGeometryPass(m_commandList.Get());
     DrawDeffered();
+    if (isSkyBoxEnabled)
+        DrawSkyBox();
     if (isParticleEnabled)
         DrawParticles();
-    DrawSkyBox();
     DrawPostProcess();
     m_gBuffer.Unbind(m_commandList.Get());
 
@@ -2205,7 +2206,7 @@ void NeneApp::BuildRenderItems()
     ambRI->Visible = true;
     ambRI->NumFramesDirtyLight = gNumFrameResources;
     ambRI->lightType = LightTypes::AMBIENT;
-    ambRI->light.Strength = { 0.05f, 0.05f, 0.05f };
+    ambRI->light.Strength = { 100.f/255.f, 0.05f, 0.05f };
     mLightRitems.push_back(ambRI);
 
     // Dir light RI
@@ -2892,6 +2893,7 @@ void NeneApp::DrawUI()
 
     ImGui::Begin("Render Settings");
     ImGui::Checkbox("Wireframe Mode", &mIsWireframe);
+    ImGui::Checkbox("Enable SkyBox", &isSkyBoxEnabled);
 
     ImGui::Text("Frustum Culling Settings");
     ImGui::Checkbox("Frustum Culling", &mUseFrustumCulling);

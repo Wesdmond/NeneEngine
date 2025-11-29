@@ -101,7 +101,7 @@ bool DX12App::LoadPipeline()
 	}
 
 	//// Try to create hardware device.
-	//HRESULT hardwareResult = D3D12CreateDevice(
+	//hardwareResult = D3D12CreateDevice(
 	//	nullptr,             // default adapter
 	//	D3D_FEATURE_LEVEL_12_0,
 	//	IID_PPV_ARGS(&m_device));

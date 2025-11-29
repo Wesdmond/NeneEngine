@@ -327,7 +327,7 @@ struct Material
 	// Material constant buffer data used for shading.
 	DirectX::SimpleMath::Vector4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
 	DirectX::SimpleMath::Vector3 FresnelR0 = { 0.04f, 0.04f, 0.04f };
-	float Roughness = .25f;
+	float Roughness = .85f;
 	DirectX::SimpleMath::Matrix MatTransform = MathHelper::Identity4x4();
 	float TessellationFactor = 1.0f;
 	float DisplacementScale = 0.1f;
