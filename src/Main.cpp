@@ -11,10 +11,20 @@
 
 #include "stdafx.h"
 #include "D3D12MeshletRender.h"
+#include <iostream>
+
+void EnableConsole()
+{
+    AllocConsole(); // Allocate a console
+    FILE* dummy;
+    freopen_s(&dummy, "CONOUT$", "w", stdout); // Redirect stdout to console
+    std::cout.clear(); // Ensure cout is in a good state
+}
 
 _Use_decl_annotations_
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 {
-    D3D12MeshletRender sample(1280, 720, L"D3D12 Mesh Shader");
+    //EnableConsole();
+    D3D12MeshletRender sample(1920, 1080, L"Nene Engine");
     return Win32Application::Run(&sample, hInstance, nCmdShow);
 }

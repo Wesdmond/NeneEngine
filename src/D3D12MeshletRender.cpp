@@ -11,15 +11,150 @@
 
 #include "stdafx.h"
 #include "D3D12MeshletRender.h"
+#include <wincodec.h>
+#include <vector>
 
-//const wchar_t* D3D12MeshletRender::c_meshFilename = L"..\\Assets\\Dragon_LOD0.bin";
-const wchar_t* D3D12MeshletRender::c_meshFilename = L"assets\\meshka.bin";
+const wchar_t* D3D12MeshletRender::c_meshFilename = L"assets\\dragon.bin";
+const wchar_t* c_texturePath = L"assets\\dragon_base_color.png";
 
 const wchar_t* D3D12MeshletRender::c_meshShaderFilename = L"MeshletMS.cso";
 const wchar_t* D3D12MeshletRender::c_pixelShaderFilename = L"MeshletPS.cso";
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 618; }
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
+
+
+namespace texb
+{
+    struct CpuImageRGBA
+    {
+        UINT w = 0, h = 0;
+        std::vector<uint8_t> rgba; // w*h*4
+    };
+
+    static Microsoft::WRL::ComPtr<IWICImagingFactory> GetWicFactory()
+    {
+        static Microsoft::WRL::ComPtr<IWICImagingFactory> s_factory;
+        if (!s_factory)
+        {
+            ThrowIfFailed(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+            ThrowIfFailed(CoCreateInstance(
+                CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&s_factory)));
+        }
+        return s_factory;
+    }
+
+    static CpuImageRGBA DecodeToRGBA32(const wchar_t* file)
+    {
+        CpuImageRGBA out;
+
+        auto factory = GetWicFactory();
+
+        Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+        ThrowIfFailed(factory->CreateDecoderFromFilename(
+            file, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder));
+
+        Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+        ThrowIfFailed(decoder->GetFrame(0, &frame));
+
+        ThrowIfFailed(frame->GetSize(&out.w, &out.h));
+
+        Microsoft::WRL::ComPtr<IWICFormatConverter> conv;
+        ThrowIfFailed(factory->CreateFormatConverter(&conv));
+        ThrowIfFailed(conv->Initialize(
+            frame.Get(),
+            GUID_WICPixelFormat32bppRGBA,
+            WICBitmapDitherTypeNone,
+            nullptr,
+            0.0,
+            WICBitmapPaletteTypeCustom));
+
+        out.rgba.resize(size_t(out.w) * size_t(out.h) * 4);
+        ThrowIfFailed(conv->CopyPixels(
+            nullptr,
+            out.w * 4,
+            (UINT)out.rgba.size(),
+            out.rgba.data()));
+
+        return out;
+    }
+
+    static void CreateTexture2D_AndUpload(
+        ID3D12Device* device,
+        ID3D12GraphicsCommandList* cmd,
+        const CpuImageRGBA& img,
+        Microsoft::WRL::ComPtr<ID3D12Resource>& tex,
+        Microsoft::WRL::ComPtr<ID3D12Resource>& upload)
+    {
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = img.w;
+        desc.Height = img.h;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+        const CD3DX12_HEAP_PROPERTIES depthStencilHeapPropsDef(D3D12_HEAP_TYPE_DEFAULT);
+        const CD3DX12_HEAP_PROPERTIES depthStencilHeapPropsUpl(D3D12_HEAP_TYPE_UPLOAD);
+
+        ThrowIfFailed(device->CreateCommittedResource(
+            &depthStencilHeapPropsDef,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&tex)));
+
+        UINT64 uploadBytes = 0;
+        device->GetCopyableFootprints(&desc, 0, 1, 0, nullptr, nullptr, nullptr, &uploadBytes);
+        auto uploadBufDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBytes);
+
+        ThrowIfFailed(device->CreateCommittedResource(
+            &depthStencilHeapPropsUpl,
+            D3D12_HEAP_FLAG_NONE,
+            &uploadBufDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&upload)));
+
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp = {};
+        UINT rows = 0;
+        UINT64 rowBytes = 0, totalBytes = 0;
+        device->GetCopyableFootprints(&desc, 0, 1, 0, &fp, &rows, &rowBytes, &totalBytes);
+
+        uint8_t* dst = nullptr;
+        ThrowIfFailed(upload->Map(0, nullptr, (void**)&dst));
+        for (UINT y = 0; y < img.h; ++y)
+        {
+            memcpy(dst + fp.Offset + size_t(y) * fp.Footprint.RowPitch,
+                img.rgba.data() + size_t(y) * size_t(img.w) * 4,
+                size_t(img.w) * 4);
+        }
+        upload->Unmap(0, nullptr);
+
+        D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
+        dstLoc.pResource = tex.Get();
+        dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dstLoc.SubresourceIndex = 0;
+
+        D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
+        srcLoc.pResource = upload.Get();
+        srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        srcLoc.PlacedFootprint = fp;
+
+        cmd->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+
+        auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            tex.Get(),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        cmd->ResourceBarrier(1, &barrier);
+    }
+}
+
 
 D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring name)
     : DXSample(width, height, name)
@@ -35,6 +170,7 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     , m_fenceValues{}
 { }
 
+
 void D3D12MeshletRender::OnInit()
 {
     m_camera.Init({ 0, 75, 150 });
@@ -43,6 +179,45 @@ void D3D12MeshletRender::OnInit()
     LoadPipeline();
     LoadAssets();
 }
+
+
+void D3D12MeshletRender::InitAlbedoResources()
+{
+    // 1) heap for SRV
+    if (m_cbvSrvUavInc == 0)
+        m_cbvSrvUavInc = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    D3D12_DESCRIPTOR_HEAP_DESC hd = {};
+    hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    hd.NumDescriptors = 1;
+    hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(m_device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_albedo.Heap)));
+
+    // 2) decode + upload
+    auto img = texb::DecodeToRGBA32(c_texturePath);
+    texb::CreateTexture2D_AndUpload(m_device.Get(), m_commandList.Get(), img, m_albedo.Tex, m_albedo.Upload);
+
+    // 3) SRV creation
+    D3D12_SHADER_RESOURCE_VIEW_DESC sd = {};
+    sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    sd.Texture2D.MipLevels = 1;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE cpu(m_albedo.Heap->GetCPUDescriptorHandleForHeapStart());
+    m_device->CreateShaderResourceView(m_albedo.Tex.Get(), &sd, cpu);
+}
+
+
+void D3D12MeshletRender::BindAlbedoTexture()
+{
+    ID3D12DescriptorHeap* heaps[] = { m_albedo.Heap.Get() };
+    m_commandList->SetDescriptorHeaps(1, heaps);
+
+    // Root param 6 - ROOT_SIG (DescriptorTable(SRV(t4)))
+    m_commandList->SetGraphicsRootDescriptorTable(6, m_albedo.Heap->GetGPUDescriptorHandleForHeapStart());
+}
+
 
 // Load the rendering pipeline dependencies.
 void D3D12MeshletRender::LoadPipeline()
@@ -280,17 +455,26 @@ void D3D12MeshletRender::LoadAssets()
     m_model.LoadFromFile(c_meshFilename);
     m_model.UploadGpuResources(m_device.Get(), m_commandQueue.Get(), m_commandAllocators[m_frameIndex].Get(), m_commandList.Get());
 
+    ThrowIfFailed(m_commandAllocators[m_frameIndex]->Reset());
+    ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), m_pipelineState.Get()));
+
+    InitAlbedoResources();
+
+    ThrowIfFailed(m_commandList->Close());
+    ID3D12CommandList* lists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(1, lists);
+
 #ifdef _DEBUG
-    // Mesh shader file expects a certain vertex layout; assert our mesh conforms to that layout.
-    const D3D12_INPUT_ELEMENT_DESC c_elementDescs[2] =
+    const D3D12_INPUT_ELEMENT_DESC c_elementDescs[3] =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
     };
 
     for (auto& mesh : m_model)
     {
-        assert(mesh.LayoutDesc.NumElements == 2);
+        assert(mesh.LayoutDesc.NumElements == 3);
 
         for (uint32_t i = 0; i < _countof(c_elementDescs); ++i)
             assert(std::memcmp(&mesh.LayoutElems[i], &c_elementDescs[i], sizeof(D3D12_INPUT_ELEMENT_DESC)) == 0);
@@ -330,15 +514,15 @@ void D3D12MeshletRender::OnUpdate()
     }
 
     m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
-
-    XMMATRIX world = XMMATRIX(g_XMIdentityR0, g_XMIdentityR1, g_XMIdentityR2, g_XMIdentityR3);
+    
+    XMMATRIX world = XMMatrixScaling(1, 1, 1)* XMMatrixTranslation(0.0f, 0.0f, 0.0f);
     XMMATRIX view = m_camera.GetViewMatrix();
     XMMATRIX proj = m_camera.GetProjectionMatrix(XM_PI / 3.0f, m_aspectRatio);
     
     XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
     XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
     XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
-    m_constantBufferData.DrawMeshlets = true;
+    m_constantBufferData.DrawMeshlets = false;
 
     memcpy(m_cbvDataBegin + sizeof(SceneConstantBuffer) * m_frameIndex, &m_constantBufferData, sizeof(m_constantBufferData));
 }
@@ -392,6 +576,9 @@ void D3D12MeshletRender::PopulateCommandList()
 
     // Set necessary state.
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+    BindAlbedoTexture();
+
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
