@@ -153,7 +153,6 @@ private:
     void DrawDeffered();
     void DrawUI();
     void DrawParticles();
-    void DrawPostProcess();
     void DrawSkyBox();
 
     void LoadTextures();
@@ -181,6 +180,11 @@ private:
     void BuildPostProcessResources();
     void BuildPostProcessSignature();
     void BuildPostProcessPSO();
+    void DrawPostProcess();
+
+    // fog
+    void BuildFogPSO();
+    void DrawFog();
 
     // particles
     void BuildParticleResources();

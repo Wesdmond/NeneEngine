@@ -65,6 +65,9 @@ bool NeneApp::Initialize()
     BuildPostProcessSignature();
     BuildPostProcessPSO();
 
+    // Init Fog
+    BuildFogPSO();
+
     // Initialize Particle System directly
     BuildParticleResources();
     BuildParticleDescriptors();
@@ -306,6 +309,14 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
     mMainPassCB.AmbientLight = Color(0.05f, 0.05f, 0.05f, 1.0f);
+
+    mMainPassCB.fogColor = XMFLOAT3(0.6f, 0.7f, 0.9f);
+    mMainPassCB.globalDensity = 0.02f;
+    mMainPassCB.heightFalloff = 0.25f;
+    mMainPassCB.baseHeight = 0.0f;
+    mMainPassCB.fogAnisotropy = 0.0f;
+    mMainPassCB.sunDirection = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    mMainPassCB.sunIntensity = 1.0f;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -698,7 +709,8 @@ void NeneApp::PopulateCommandList()
         DrawSkyBox();
     if (isParticleEnabled)
         DrawParticles();
-    DrawPostProcess();
+    //DrawPostProcess();
+    DrawFog();
     m_gBuffer.Unbind(m_commandList.Get());
 
 // UI 
@@ -2420,6 +2432,70 @@ void NeneApp::BuildPostProcessPSO()
     psoDesc.SampleDesc.Quality = 0;
 
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["PostProcess"])));
+}
+
+void NeneApp::BuildFogPSO()
+{
+    mShaders["fogPS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "PS", "ps_5_1");
+    mShaders["fogVS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "VS", "vs_5_1");
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
+    ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    psoDesc.InputLayout = { nullptr, 0 };
+    psoDesc.pRootSignature = mPostProcessRootSignature.Get();
+    psoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["fogVS"]->GetBufferPointer()),
+        mShaders["fogVS"]->GetBufferSize()
+    };
+    psoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["fogPS"]->GetBufferPointer()),
+        mShaders["fogPS"]->GetBufferSize()
+    };
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable = false;
+    psoDesc.DepthStencilState.StencilEnable = false;
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = m_backBufferFormat;
+    psoDesc.SampleDesc.Count = 1;
+    psoDesc.SampleDesc.Quality = 0;
+
+    ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["Fog"])));
+}
+
+void NeneApp::DrawFog()
+{
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        m_gBuffer.GetDepthResource(),
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+        mPostProcessRenderTarget.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    // Indicate a state transition on the resource usage.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr);
+
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    auto srvHandles = m_gBuffer.GetSRVs();
+    // Post-Process
+    m_commandList->SetPipelineState(mPSOs["Fog"].Get());
+    m_commandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+    m_commandList->SetGraphicsRootDescriptorTable(0, srvHandles[0]);
+    m_commandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->SetGraphicsRootDescriptorTable(2, mPostProcessSrvGpuHandle);
+
+    m_commandList->IASetVertexBuffers(0, 0, nullptr);
+    m_commandList->IASetIndexBuffer(nullptr);
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_commandList->DrawInstanced(3, 1, 0, 0);
 }
 
 void NeneApp::BuildParticleResources()

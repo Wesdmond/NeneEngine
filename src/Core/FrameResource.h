@@ -29,6 +29,16 @@ struct PassConstants
     float DeltaTime = 0.0f;
 
     DirectX::SimpleMath::Color AmbientLight; // {0, 0, 0, 1} by default
+
+    // fog
+    DirectX::XMFLOAT3 fogColor;
+    float globalDensity;
+    float heightFalloff;
+    float baseHeight;
+    float fogAnisotropy;
+    float sunIntensity;
+    DirectX::XMFLOAT3 sunDirection;
+    float pad;
 };
 
 struct Vertex
