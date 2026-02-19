@@ -182,9 +182,11 @@ private:
     void BuildPostProcessPSO();
     void DrawPostProcess();
 
-    // fog
-    void BuildFogPSO();
+    // fog and atmosphere
+    void BuildAtmospherePSO();
     void DrawFog();
+    
+
 
     // particles
     void BuildParticleResources();

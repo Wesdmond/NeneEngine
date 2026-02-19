@@ -66,7 +66,7 @@ bool NeneApp::Initialize()
     BuildPostProcessPSO();
 
     // Init Fog
-    BuildFogPSO();
+    BuildAtmospherePSO();
 
     // Initialize Particle System directly
     BuildParticleResources();
@@ -315,7 +315,7 @@ void NeneApp::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.heightFalloff = 0.25f;
     mMainPassCB.baseHeight = 0.0f;
     mMainPassCB.fogAnisotropy = 0.0f;
-    mMainPassCB.sunDirection = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    mMainPassCB.sunDirection = XMFLOAT3(-1.0f, -1.0f, 1.0f);
     mMainPassCB.sunIntensity = 1.0f;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
@@ -2434,7 +2434,7 @@ void NeneApp::BuildPostProcessPSO()
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["PostProcess"])));
 }
 
-void NeneApp::BuildFogPSO()
+void NeneApp::BuildAtmospherePSO()
 {
     mShaders["fogPS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "PS", "ps_5_1");
     mShaders["fogVS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "VS", "vs_5_1");
@@ -2465,6 +2465,34 @@ void NeneApp::BuildFogPSO()
     psoDesc.SampleDesc.Quality = 0;
 
     ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["Fog"])));
+
+	mShaders["atmospherePS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "AtmospherePS", "ps_5_1");
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC atmo_psoDesc = {};
+    atmo_psoDesc.InputLayout = { nullptr, 0 }; // fullscreen
+    atmo_psoDesc.pRootSignature = mPostProcessRootSignature.Get();
+    atmo_psoDesc.VS = {
+        mShaders["fogVS"]->GetBufferPointer(),
+        mShaders["fogVS"]->GetBufferSize()
+	};
+    atmo_psoDesc.PS = {
+        mShaders["atmospherePS"]->GetBufferPointer(),
+        mShaders["atmospherePS"]->GetBufferSize()
+	};
+	atmo_psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	atmo_psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	atmo_psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	atmo_psoDesc.DepthStencilState.DepthEnable = FALSE;
+	atmo_psoDesc.DepthStencilState.StencilEnable = FALSE;
+	atmo_psoDesc.SampleMask = UINT_MAX;
+	atmo_psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	atmo_psoDesc.NumRenderTargets = 1;
+	atmo_psoDesc.RTVFormats[0] = m_backBufferFormat;
+	atmo_psoDesc.SampleDesc.Count = 1;
+	atmo_psoDesc.SampleDesc.Quality = 0;
+
+	ThrowIfFailed(m_device->CreateGraphicsPipelineState(
+		&atmo_psoDesc, IID_PPV_ARGS(&mPSOs["Atmosphere"])));
 }
 
 void NeneApp::DrawFog()
@@ -2485,7 +2513,7 @@ void NeneApp::DrawFog()
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
     auto srvHandles = m_gBuffer.GetSRVs();
     // Post-Process
-    m_commandList->SetPipelineState(mPSOs["Fog"].Get());
+    m_commandList->SetPipelineState(mPSOs["Atmosphere"].Get());
     m_commandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
     m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
     m_commandList->SetGraphicsRootDescriptorTable(0, srvHandles[0]);
