@@ -821,13 +821,26 @@ void TexColumnsApp::UpdateCamera(const GameTimer& gt)
 
 	XMMATRIX view = XMMatrixLookToLH(pos, target, up);
 	XMStoreFloat4x4(&mView, view);
-
-	
 }
 
 void TexColumnsApp::AnimateMaterials(const GameTimer& gt)
 {
-
+	if(mAllRitems.size() > 1)
+    {
+        auto& movingSphere = mAllRitems[5];
+        
+		//movingSphere->
+        // Движение вверх-вниз над кубом
+        float time = gt.TotalTime();
+        float posX = 0.0f;
+        float posY = 4.0f + sinf(time * 5.5f) * 8.0f;  // Вверх-вниз (от 3.0 до 5.0)
+        float posZ = 0.0f;
+        
+        XMMATRIX world = XMMatrixTranslation(posX, posY, posZ);
+        XMStoreFloat4x4(&movingSphere->World, world);
+        
+        movingSphere->NumFramesDirty = gNumFrameResources;
+    }
 }
 
 void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
@@ -842,13 +855,17 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 		{
 			XMMATRIX world = XMLoadFloat4x4(&e->World);
 			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
+			XMMATRIX prevWorld = XMLoadFloat4x4(&e->PrevWorld);
 
 			ObjectConstants objConstants;
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
 			XMStoreFloat4x4(&objConstants.InvWorld, MathHelper::InverseTranspose(world));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+			XMStoreFloat4x4(&objConstants.PrevWorld, XMMatrixTranspose(prevWorld));
 
 			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
+			XMStoreFloat4x4(&objConstants.PrevWorld, world);
+
 
 			// Next FrameResource need to be updated too.
 			e->NumFramesDirty--;
@@ -1962,6 +1979,7 @@ void TexColumnsApp::RenderShapeMesh(std::string unique_name, std::string meshnam
 	rItem->Name = unique_name;
 	XMStoreFloat4x4(&rItem->TexTransform, XMMatrixScaling(1, 1., 1.));
 	XMStoreFloat4x4(&rItem->World, Scale * Rotation * Translation);
+	XMStoreFloat4x4(&rItem->PrevWorld, Scale * Rotation * Translation);
 	rItem->ObjCBIndex = mAllRitems.size();
 	rItem->Geo = mGeometries["terrainGeo"].get();
 	rItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -1989,6 +2007,7 @@ void TexColumnsApp::RenderCustomMesh(std::string unique_name, std::string meshna
 		rItem->Name = unique_name;
 		XMStoreFloat4x4(&rItem->TexTransform, XMMatrixScaling(1, 1., 1.));
 		XMStoreFloat4x4(&rItem->World, Scale * Rotation * Translation);
+		XMStoreFloat4x4(&rItem->PrevWorld, Scale * Rotation * Translation);
 		rItem->ObjCBIndex = mAllRitems.size();
 		rItem->Geo = mGeometries["shapeGeo"].get();
 		rItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -2018,6 +2037,7 @@ void TexColumnsApp::RenderCustomMesh(std::string unique_name, std::string meshna
 void TexColumnsApp::BuildRenderItems()
 {
 	RenderCustomMesh("building", "sponza", "", XMMatrixScaling(0.07, 0.07, 0.07), XMMatrixRotationRollPitchYaw(0, 3.14 / 2, 0), XMMatrixTranslation(0, 120, 0));
+	RenderCustomMesh("building", "sphere", "", XMMatrixScaling(100.0, 100.0, 100.0), XMMatrixRotationRollPitchYaw(0, 3.14 / 2, 0), XMMatrixTranslation(0, 100, 0));
 	//RenderCustomMesh("nigga", "negr", "NiggaMat", XMMatrixScaling(3, 3, 3), XMMatrixRotationRollPitchYaw(0, 3.14, 0), XMMatrixIdentity());
 	
 	//RenderCustomMesh("abbox", "negr", "bricks", XMMatrixScaling(3, 3, 3), XMMatrixRotationRollPitchYaw(0, 3.14, 0), XMMatrixTranslation(0, 40, 0));

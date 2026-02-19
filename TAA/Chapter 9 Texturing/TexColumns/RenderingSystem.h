@@ -19,6 +19,7 @@ struct RenderItem
     RenderItem(const RenderItem& rhs) = delete;
 
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PrevWorld = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
     int NumFramesDirty = 3;

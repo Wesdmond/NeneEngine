@@ -5,6 +5,7 @@ cbuffer cbPerObject : register(b0)
     float4x4 gWorld;
     float4x4 gInvWorld;
     float4x4 gTexTransform;
+    float4x4 gPrevWorld;
 };
 
 cbuffer cbPass : register(b1)
@@ -75,6 +76,7 @@ struct VertexOut
 {
     float4 PosH : SV_POSITION;
     float3 PosW : POSITION;
+    float4 PrevPosH : PREV_POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
@@ -87,14 +89,16 @@ VertexOut VS(VertexIn vin)
     
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
-    
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     float height = gDiffuseMap.SampleLevel(gsamAnisotropicWrap, vout.TexC, 0).r;
     
-
+    
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW;
-
     vout.PosH = mul(posW, gViewProj);
+    
+    float4 prevPosW = mul(float4(vin.PosL, 1.0f), gPrevWorld);
+    vout.PrevPosH = mul(prevPosW, gPrevViewProj);
+
     //float2 jitter = GenerateJitter(floor((gTotalTime * 60.) + 50) % 100);
     float2 jitter = gJitter*0;
     float2 jitterNDC = jitter * 2.0 / gRenderTargetSize;
@@ -165,11 +169,11 @@ GBufferOutput PS(VertexOut pin)
     float4 prevPosH = mul(float4(pin.PosW, 1.0f), gPrevViewProj);
     
     float2 currNDC = (posH.xy / posH.w) ;
-    float2 prevNDC = (prevPosH.xy / prevPosH.w);
+    float2 prevNDC = (pin.PrevPosH.xy / pin.PrevPosH.w);
 
     // NDC
     float2 velocity = currNDC - prevNDC;
-    velocity = velocity * float2(0.5, -0.5);
+    //velocity = velocity * float2(0.5, -0.5);
     
     output.Velocity = velocity;
     

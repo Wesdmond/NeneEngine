@@ -75,15 +75,13 @@ PSOutput PS(VertexOut pin)
     float weightHistory = 0.9 * historyColor.a;
     float weightCurr = 0.1 * currentColor.a;
 
-    
-    
-    
-    
-    
-    
     //float4 blendedColor = ClampedColor * weightHistory + currentColor * weightCurr;
     float4 blendedColor = ClampedColor * 0.9 + currentColor * 0.1;
     
     output.RT0 = blendedColor;
+    if (length(velocity) > 0.000001)
+    {
+        output.RT0 = float4(1., 0., 0., 1.);
+    }
     return output;
 }
