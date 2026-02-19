@@ -66,7 +66,7 @@ public:
 	void Walk(float d);
 
 	void AddSpeed(float alpha);
-	float& GetSpeed();
+	float GetSpeed();
 	void SetSpeed(float _speed);
 	void IncreaseSpeed(float delta);
 	// Rotate the camera.
@@ -81,6 +81,7 @@ public:
 	void UpdateViewMatrix();
 	void UpdateFrustum();
 	DirectX::BoundingFrustum GetFrustum() const;
+	DirectX::BoundingFrustum mFrustum;
 private:
 
 	// Camera coordinate system with coordinates relative to world space.
@@ -99,11 +100,11 @@ private:
 	float mNearWindowHeight = 0.0f;
 	float mFarWindowHeight = 0.0f;
 
-	float CurSpeed = 3.0f;
-	float BaseSpeed = 3.0f;
-	float MaxSpeed = 20.0f;
+	float CurSpeed = 1.0f;
+	float BaseSpeed = 1.0f;
+	float MaxSpeed = 1.0f;
 	bool mViewDirty = true;
-	DirectX::BoundingFrustum mFrustum;
+
 	// Cache View/Proj matrices.
 	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();

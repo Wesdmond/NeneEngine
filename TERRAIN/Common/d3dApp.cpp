@@ -262,14 +262,6 @@ void D3DApp::OnResize()
 	mScreenViewport.MaxDepth = 1.0f;
 
     mScissorRect = { 0, 0, mClientWidth, mClientHeight };
-
-	mScreenViewport1.TopLeftX = 0;
-	mScreenViewport1.TopLeftY = 0;
-	mScreenViewport1.Width = static_cast<float>(mClientWidth/8);
-	mScreenViewport1.Height = static_cast<float>(mClientHeight/8);
-	mScreenViewport1.MinDepth = 0.0f;
-	mScreenViewport1.MaxDepth = 1.0f;
-    mScissorRect1 = { 0, 0, mClientWidth/8, mClientHeight/8 };
 }
  
 LRESULT D3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -627,37 +619,36 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3DApp::DepthStencilView()const
 
 void D3DApp::CalculateFrameStats()
 {
-	// ������� ���������� ������ � �����
+	// Code computes the average frames per second, and also the 
+	// average time it takes to render one frame.  These stats 
+	// are appended to the window caption bar.
+    
 	static int frameCnt = 0;
 	static float timeElapsed = 0.0f;
 
 	frameCnt++;
 
-	float totalTime = mTimer.TotalTime();
-	float deltaTime = totalTime - timeElapsed;
-
-	// ��������� ���������� ��� � �������
-	if (deltaTime >= 1.0f)
+	// Compute averages over one second period.
+	if( (mTimer.TotalTime() - timeElapsed) >= 0.1f )
 	{
-		// FPS = ���-�� ������ / ��������� ����� (� ��������)
-		float fps = frameCnt / deltaTime;
-		// mspf = ����������� �� ����
+		float fps = (float)frameCnt; // fps = frameCnt / 1
 		float mspf = 1000.0f / fps;
 
-		// �������� � ������ � ������ ��������� (����� fps, ���� ���������� ��� mspf)
-		wchar_t buf[64];
-		swprintf(buf, 64, L"%d fps   %.1f mspf", static_cast<int>(fps), mspf);
+        wstring fpsStr = to_wstring(fps);
+        wstring mspfStr = to_wstring(mspf);
 
-		// ������ ���������
-		std::wstring windowText = mMainWndCaption + L"    " + buf + L"   speed: " + GetCamSpeed();
-		SetWindowText(mhMainWnd, windowText.c_str());
+		wstring windowText = mMainWndCaption +
+			L"    fps: " + fpsStr +
+			L"   mspf: " + mspfStr +
+			L"  speed: " + GetCamSpeed();
 
-		// ���������� ��������
+        SetWindowText(mhMainWnd, windowText.c_str());
+		
+		// Reset for next average.
 		frameCnt = 0;
-		timeElapsed += deltaTime;   // ���: timeElapsed = totalTime;
+		timeElapsed += 0.1f;
 	}
 }
-
 
 void D3DApp::LogAdapters()
 {

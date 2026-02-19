@@ -1,4 +1,4 @@
-ï»¿//***************************************************************************************
+//***************************************************************************************
 // Camera.h by Frank Luna (C) 2011 All Rights Reserved.
 //***************************************************************************************
 
@@ -8,7 +8,7 @@ using namespace DirectX;
 
 Camera::Camera()
 {
-	SetLens(0.5f*MathHelper::Pi, 1.0f, 1.0f, 20000.0f);
+	SetLens(0.75f*MathHelper::Pi, 1.0f, 1.0f, 1000.0f);
 	DirectX::XMStoreFloat4(&orientation,DirectX::XMQuaternionIdentity());
 }
 
@@ -203,7 +203,7 @@ void Camera::AddSpeed(float alpha) {
 	BaseSpeed+=alpha;
 }
 
-float& Camera::GetSpeed() {
+float Camera::GetSpeed() {
 	return this->CurSpeed;
 }
 
@@ -250,36 +250,36 @@ void Camera::Yaw(float angle)
 
 void Camera::YawPitch(float yawDelta, float pitchDelta)
 {
-	// 1. ÐÐºÐºÑƒÐ¼ÑƒÐ»Ð¸Ñ€ÑƒÐµÐ¼ Ð¸Ð·Ð¼ÐµÐ½ÐµÐ½Ð¸Ñ ÑƒÐ³Ð»Ð¾Ð².
+	// 1. Àêêóìóëèðóåì èçìåíåíèÿ óãëîâ.
 	mYaw += yawDelta;
 	mPitch += pitchDelta;
 
-	// 2. ÐžÐ³Ñ€Ð°Ð½Ð¸Ñ‡Ð¸Ð²Ð°ÐµÐ¼ ÑƒÐ³Ð¾Ð» Ð½Ð°ÐºÐ»Ð¾Ð½Ð° (pitch) Ð¿Ñ€Ð¸Ð¼ÐµÑ€Ð½Ð¾ Â±89 Ð³Ñ€Ð°Ð´ÑƒÑÐ¾Ð².
-	float pitchLimit = XM_PIDIV2 - 0.01f; // XM_PIDIV2 = 90 Ð³Ñ€Ð°Ð´ÑƒÑÐ¾Ð², Ð¾Ñ‚ÑÑ‚ÑƒÐ¿ Ñ‡ÑƒÑ‚ÑŒ Ð¼ÐµÐ½ÑŒÑˆÐµ, Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð¸Ð·Ð±ÐµÐ¶Ð°Ñ‚ÑŒ Ð³Ð¸Ð¼Ð°.
+	// 2. Îãðàíè÷èâàåì óãîë íàêëîíà (pitch) ïðèìåðíî ±89 ãðàäóñîâ.
+	float pitchLimit = XM_PIDIV2 - 0.01f; // XM_PIDIV2 = 90 ãðàäóñîâ, îòñòóï ÷óòü ìåíüøå, ÷òîáû èçáåæàòü ãèìà.
 	if (mPitch > pitchLimit)
 		mPitch = pitchLimit;
 	if (mPitch < -pitchLimit)
 		mPitch = -pitchLimit;
 
-	// 3. ÐŸÐµÑ€ÐµÑÑ‡Ð¸Ñ‚Ñ‹Ð²Ð°ÐµÐ¼ Ð¾Ñ€Ð¸ÐµÐ½Ñ‚Ð°Ñ†Ð¸ÑŽ ÐºÐ°Ð¼ÐµÑ€Ñ‹ ÐºÐ°Ðº ÐºÐ²Ð°Ñ‚ÐµÑ€Ð½Ð¸Ð¾Ð½ Ð¸Ð· Ð½Ð°ÐºÐ¾Ð¿Ð»ÐµÐ½Ð½Ñ‹Ñ… ÑƒÐ³Ð»Ð¾Ð² (Ð±ÐµÐ· ÑƒÑ‡ÐµÑ‚Ð° ÐºÑ€ÐµÐ½Ð°).
+	// 3. Ïåðåñ÷èòûâàåì îðèåíòàöèþ êàìåðû êàê êâàòåðíèîí èç íàêîïëåííûõ óãëîâ (áåç ó÷åòà êðåíà).
 	XMVECTOR q = XMQuaternionRotationRollPitchYaw(mPitch, mYaw, 0.0f);
 	XMStoreFloat4(&orientation, q);
 
-	// 4. Ð’Ñ‹Ñ‡Ð¸ÑÐ»ÑÐµÐ¼ Ð½Ð¾Ð²Ñ‹Ð¹ Ð²ÐµÐºÑ‚Ð¾Ñ€ Ð²Ð·Ð³Ð»ÑÐ´Ð°.
+	// 4. Âû÷èñëÿåì íîâûé âåêòîð âçãëÿäà.
 	XMVECTOR baseForward = XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f);
 	XMVECTOR newForward = XMVector3Rotate(baseForward, q);
 	newForward = XMVector3Normalize(newForward);
 	XMStoreFloat3(&mLook, newForward);
 
-	// 5. Ð’Ñ‹Ñ‡Ð¸ÑÐ»ÑÐµÐ¼ Ð¿Ñ€Ð°Ð²Ñ‹Ð¹ Ð¸ Ð²ÐµÑ€Ñ…Ð½Ð¸Ð¹ Ð²ÐµÐºÑ‚Ð¾Ñ€Ñ‹ ÐºÐ°Ð¼ÐµÑ€Ñ‹.
+	// 5. Âû÷èñëÿåì ïðàâûé è âåðõíèé âåêòîðû êàìåðû.
 	XMVECTOR worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 	XMVECTOR newRight = XMVector3Normalize(XMVector3Cross(worldUp, newForward));
 	XMStoreFloat3(&mRight, newRight);
 	XMVECTOR newUp = XMVector3Normalize(XMVector3Cross(newForward, newRight));
 	XMStoreFloat3(&mUp, newUp);
-	
+
 	mViewDirty = true;
-	// 6. ÐžÐ±Ð½Ð¾Ð²Ð»ÑÐµÐ¼ Ð¼Ð°Ñ‚Ñ€Ð¸Ñ†Ñƒ Ð²Ð¸Ð´Ð°.
+	// 6. Îáíîâëÿåì ìàòðèöó âèäà.
 	UpdateViewMatrix();
 }
 
@@ -371,8 +371,9 @@ void Camera::UpdateFrustum() {
 	XMMATRIX P = GetProj();
 	BoundingFrustum::CreateFromMatrix(mFrustum, P);
 
-	XMMATRIX view = GetView(); 
-	XMVECTOR det; 
+	XMMATRIX view = GetView();
+	XMVECTOR det;
 	XMMATRIX invView = XMMatrixInverse(&det, view);
 	mFrustum.Transform(mFrustum, invView);
 }
+
